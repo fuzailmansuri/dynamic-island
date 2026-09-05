@@ -1,0 +1,40 @@
+From 8322bf08d802607dc3d6c928061b30d1bcf01027 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 10:50:22 +0000
+Subject: [PATCH 01/13] core: res: Declare config_customEmojiFontFamily for
+ emoji overlays
+
+---
+ core/res/res/values/config.xml  | 3 +++
+ core/res/res/values/symbols.xml | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+index 53ba482fb477..074a553e4e5f 100644
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -5651,6 +5651,9 @@
+     <!-- Name of a font family to use as light font. For theming purpose. -->
+     <string name="config_lightFontFamily" translatable="false">sans-serif-light</string>
+ 
++    <!-- Name of the emoji font family to use for custom emoji. -->
++    <string name="config_customEmojiFontFamily" translatable="false"></string>
++
+     <!-- Name of the font family to use in the default lockscreen clock -->
+     <string name="config_clockFontFamily" translatable="false">monospace</string>
+ 
+diff --git a/core/res/res/values/symbols.xml b/core/res/res/values/symbols.xml
+index 5edcad549832..ebb092df6d9a 100644
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -4399,6 +4399,7 @@
+   <java-symbol type="string" name="config_bodyFontFamily" />
+   <java-symbol type="string" name="config_bodyFontFamilyMedium" />
+   <java-symbol type="string" name="config_lightFontFamily" />
++  <java-symbol type="string" name="config_customEmojiFontFamily" />
+ 
+   <java-symbol type="integer" name="config_pressedStateDurationMillis" />
+   <java-symbol type="integer" name="config_tapTimeoutMillis" />
+-- 
+2.43.0
+

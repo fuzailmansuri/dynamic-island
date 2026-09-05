@@ -1,0 +1,30 @@
+From fa4956a846e68a6936aa960cf7c63754358f3057 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 19:49:39 +0000
+Subject: [PATCH 12/13] SystemUI: Calibrate default status bar horizontal
+ padding
+
+---
+ packages/SystemUI/res/values/dimens.xml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/packages/SystemUI/res/values/dimens.xml b/packages/SystemUI/res/values/dimens.xml
+index 805b7b52cd74..01d846506a71 100644
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -469,10 +469,10 @@
+     <dimen name="status_bar_icon_horizontal_margin">0sp</dimen>
+ 
+     <!-- the padding on the start of the statusbar -->
+-    <dimen name="status_bar_padding_start">4dp</dimen>
++    <dimen name="status_bar_padding_start">16dp</dimen>
+ 
+     <!-- the padding on the end of the statusbar -->
+-    <dimen name="status_bar_padding_end">4dp</dimen>
++    <dimen name="status_bar_padding_end">16dp</dimen>
+ 
+     <!-- the padding on the top of the statusbar (usually 0) -->
+     <dimen name="status_bar_padding_top">0dp</dimen>
+-- 
+2.43.0
+

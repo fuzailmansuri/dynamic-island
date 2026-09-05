@@ -1,0 +1,26 @@
+From 3c57be7b61f12eab1dc05cf59c9614345b9bbc89 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 19:49:41 +0000
+Subject: [PATCH 2/2] overlay: SystemUI: Calibrate status bar horizontal
+ padding
+
+---
+ overlay/SystemUIOverlay/res/values/dimens.xml | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/overlay/SystemUIOverlay/res/values/dimens.xml b/overlay/SystemUIOverlay/res/values/dimens.xml
+index ae1e6fb..a4692df 100644
+--- a/overlay/SystemUIOverlay/res/values/dimens.xml
++++ b/overlay/SystemUIOverlay/res/values/dimens.xml
+@@ -17,4 +17,8 @@
+ <resources>
+     <!-- Remove power menu shadow -->
+     <dimen name="global_actions_translate">0dp</dimen>
++
++    <!-- Status bar padding -->
++    <dimen name="status_bar_padding_start">16dp</dimen>
++    <dimen name="status_bar_padding_end">16dp</dimen>
+ </resources>
+-- 
+2.43.0
+

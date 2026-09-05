@@ -1,0 +1,144 @@
+From 8afe5b5d6caf4a2d706f7fbcf581a05b94ba6392 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 11:37:02 +0000
+Subject: [PATCH 03/13] SystemUI: Center-align Dynamic Island over hardware
+ camera cutout and bind cutout offsets
+
+---
+ .../ui/AxDynamicBarChipViewModel.kt           |  1 +
+ .../ui/AxDynamicBarExpandedPanel.kt           |  5 ++--
+ .../ui/compose/AxDynamicBarChip.kt            | 10 ++++----
+ .../shared/ui/composable/StatusBarRoot.kt     | 24 +++++++++++--------
+ 4 files changed, 24 insertions(+), 16 deletions(-)
+
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
+index 14a426b19008..276bdcd9f9c2 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
+@@ -101,6 +101,7 @@ constructor(
+     val isKeyguardEnabled: StateFlow<Boolean> = interactor.settings.isKeyguardEnabled
+     val keyguardBatteryChipMode: StateFlow<Int> = interactor.settings.keyguardBatteryChipMode
+ 
++    val cutoutType: StateFlow<String> = interactor.settings.cutoutType
+     val cutoutWidth: StateFlow<Int> = interactor.settings.cutoutWidth
+     val cutoutHeight: StateFlow<Int> = interactor.settings.cutoutHeight
+     val cutoutOffsetX: StateFlow<Int> = interactor.settings.cutoutOffsetX
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
+index 34da949b4fe1..6d446d8bf33d 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
+@@ -240,9 +240,10 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
+         )
+     }
+ 
+-    val originX = chipBounds?.centerXFraction ?: chipX
++    val cutoutType by viewModel.cutoutType.collectAsStateWithLifecycle()
++    val originX = if (cutoutType == "center") 0.5f else (chipBounds?.centerXFraction ?: chipX)
+     val chipAlignment = BiasAlignment(horizontalBias = originX * 2f - 1f, verticalBias = -1f)
+-    val panelOriginX = panelTransformOriginX(chipBounds, panelBounds)
++    val panelOriginX = if (cutoutType == "center") 0.5f else panelTransformOriginX(chipBounds, panelBounds)
+     val progress = panelProgress.value.coerceIn(0f, 1f)
+     val panelRadius = PanelCollapsedRadius + (PanelExpandedRadius - PanelCollapsedRadius) * progress
+     val panelTapBounds =
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+index a85d8d9a44b4..6a916f402ce4 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+@@ -223,17 +223,19 @@ private fun AxDynamicBarChipContent(
+                 label = "content",
+             )
+             val progress = chipProgressFor(event)
++            val cutoutType by viewModel.cutoutType.collectAsStateWithLifecycle()
+             val cutoutWidthSetting by viewModel.cutoutWidth.collectAsStateWithLifecycle()
+             val cutoutHeightSetting by viewModel.cutoutHeight.collectAsStateWithLifecycle()
+             val cutoutOffsetXSetting by viewModel.cutoutOffsetX.collectAsStateWithLifecycle()
+             val cutoutOffsetYSetting by viewModel.cutoutOffsetY.collectAsStateWithLifecycle()
+ 
+-            val chipHeightDp = if (cutoutHeightSetting > 0) cutoutHeightSetting.dp else ChipHeight
+-            val chipMinWidthDp = if (cutoutWidthSetting > 0) cutoutWidthSetting.dp else Dp.Unspecified
++            val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceAtLeast(16f).dp
++            val chipMinWidthDp = if (cutoutWidthSetting != 0) (48f + cutoutWidthSetting).coerceAtLeast(24f).dp else Dp.Unspecified
++            val chipMaxWidthDp = (140f + cutoutWidthSetting).coerceAtLeast(60f).dp
+ 
+             Box(
+                 modifier = Modifier.fillMaxHeight(),
+-                contentAlignment = Alignment.Center,
++                contentAlignment = if (cutoutType == "left") Alignment.CenterStart else Alignment.Center,
+             ) {
+                 Box(
+                     modifier =
+@@ -254,7 +256,7 @@ private fun AxDynamicBarChipContent(
+                     Row(
+                         modifier =
+                             Modifier.height(chipHeightDp)
+-                                .widthIn(min = chipMinWidthDp, max = 120.dp)
++                                .widthIn(min = chipMinWidthDp, max = chipMaxWidthDp)
+                                 .offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
+                                 .then(chipVisibilityModifier)
+                                 .clip(ChipShape)
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
+index 3cbe555984ab..069c7dbdd4e9 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
+@@ -31,6 +31,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.widthIn
+@@ -274,7 +275,6 @@ fun StatusBarRoot(
+                     statusBarViewModel = statusBarViewModel,
+                     iconViewStore = iconViewStore,
+                     appHandlesViewModel = appHandlesViewModel,
+-                    axDynamicBarChipViewModel = axDynamicBarChipViewModel,
+                     context = context,
+                 )
+ 
+@@ -393,6 +393,19 @@ fun StatusBarRoot(
+             parent.initOnBackPressedDispatcherOwner(lifecycle, force = true)
+             headlineComposer.Content(headlineViewModel, modifier = Modifier.align(Alignment.Center))
+         }
++
++        val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
++        if (axEnabled) {
++            Box(
++                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
++                contentAlignment = Alignment.TopCenter,
++            ) {
++                AxDynamicBarChip(
++                    viewModel = axDynamicBarChipViewModel,
++                    modifier = Modifier.wrapContentSize(),
++                )
++            }
++        }
+     }
+ }
+ 
+@@ -403,7 +416,6 @@ private fun addStartSideComposable(
+     statusBarViewModel: HomeStatusBarViewModel,
+     iconViewStore: NotificationIconContainerViewBinder.IconViewStore?,
+     appHandlesViewModel: AppHandlesViewModel,
+-    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+     context: Context,
+ ) {
+     val startSideExceptHeadsUp =
+@@ -517,14 +529,6 @@ private fun addStartSideComposable(
+                         )
+                     }
+ 
+-                val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
+-                if (axEnabled) {
+-                    AxDynamicBarChip(
+-                        viewModel = axDynamicBarChipViewModel,
+-                        modifier = Modifier.widthIn(max = chipsMaxWidth),
+-                    )
+-                }
+-
+                 val chipsVisibilityModel = statusBarViewModel.ongoingActivityChips
+                 if (chipsVisibilityModel.areChipsAllowed) {
+                     OngoingActivityChips(
+-- 
+2.43.0
+

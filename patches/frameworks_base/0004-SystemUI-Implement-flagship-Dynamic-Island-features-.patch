@@ -1,0 +1,895 @@
+From a5daf6ab55295157326ea688aacd1acf536029e3 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 11:43:01 +0000
+Subject: [PATCH 04/13] SystemUI: Implement flagship Dynamic Island features
+ (dual-capsule split, live audio visualizer, charging telemetry, privacy glow)
+
+---
+ packages/SystemUI/res/values/strings.xml      |   2 +
+ .../data/source/SystemIslandManager.kt        |  28 ++
+ .../domain/AxDynamicBarInteractor.kt          |   5 +
+ .../axdynamicbar/model/IslandEvent.kt         |   2 +
+ .../ui/AxDynamicBarChipViewModel.kt           |  57 +++
+ .../ui/compose/AxDynamicBarChip.kt            | 325 ++++++++++++++----
+ .../ui/compose/ExpandedMediaContent.kt        |  50 ++-
+ .../ui/compose/ExpandedSystemContent.kt       |  20 +-
+ .../ui/compose/PillIslandContent.kt           |  93 ++++-
+ 9 files changed, 496 insertions(+), 86 deletions(-)
+
+diff --git a/packages/SystemUI/res/values/strings.xml b/packages/SystemUI/res/values/strings.xml
+index 6e1d553d2fa0..9c4614db1f31 100644
+--- a/packages/SystemUI/res/values/strings.xml
++++ b/packages/SystemUI/res/values/strings.xml
+@@ -5078,6 +5078,8 @@
+     <string name="ax_dynamic_bar_vibrate">Vibrate</string>
+     <string name="ax_dynamic_bar_ring">Ring</string>
+     <string name="ax_dynamic_bar_charging">Charging</string>
++    <string name="ax_dynamic_bar_fast_charging">Fast Charging</string>
++    <string name="ax_dynamic_bar_fast_charge">Fast Charge</string>
+     <string name="ax_dynamic_bar_wireless">Wireless</string>
+     <string name="ax_dynamic_bar_saver">Saver</string>
+     <string name="ax_dynamic_bar_music">Music</string>
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/data/source/SystemIslandManager.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/data/source/SystemIslandManager.kt
+index 290659fc0258..901974934ee6 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/data/source/SystemIslandManager.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/data/source/SystemIslandManager.kt
+@@ -13,6 +13,7 @@ import android.net.Uri
+ import android.os.Handler
+ import android.util.Log
+ import androidx.core.content.FileProvider
++import com.android.settingslib.fuelgauge.BatteryStatus
+ import com.android.systemui.axdynamicbar.model.IslandEvent
+ import com.android.systemui.res.R
+ import com.android.systemui.dagger.SysUISingleton
+@@ -261,21 +262,28 @@ constructor(
+                         wasCharging = snap.isCharging
+                         if (snap.isCharging && !wasChargingBefore && snap.level != null) {
+                             chargingDismissed = false
++                            val (isFast, speedLabel) = getChargingSpeedInfo()
+                             val event =
+                                 IslandEvent.Charging(
+                                     level = snap.level,
+                                     isWireless = batteryController.isWirelessCharging,
+                                     isPowerSave = snap.isPowerSave,
+                                     timeRemaining = snap.timeEst,
++                                    isFastCharging = isFast,
++                                    chargingSpeedLabel = speedLabel,
+                                 )
+                             _chargingEvent.value = event
+                             onChargingStarted?.invoke(event)
+                         } else if (snap.isCharging && wasChargingBefore && !chargingDismissed) {
++                            val (isFast, speedLabel) = getChargingSpeedInfo()
+                             _chargingEvent.value =
+                                 _chargingEvent.value?.copy(
+                                     level = snap.level ?: _chargingEvent.value?.level ?: 0,
++                                    isWireless = batteryController.isWirelessCharging,
+                                     isPowerSave = snap.isPowerSave,
+                                     timeRemaining = snap.timeEst,
++                                    isFastCharging = isFast,
++                                    chargingSpeedLabel = speedLabel,
+                                 )
+                         } else if (!snap.isCharging && wasChargingBefore) {
+                             chargingDismissed = false
+@@ -285,6 +293,26 @@ constructor(
+             }
+     }
+ 
++    private fun getChargingSpeedInfo(): Pair<Boolean, String?> {
++        return try {
++            val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
++            if (batteryIntent != null) {
++                val status = BatteryStatus(batteryIntent)
++                val isFast = status.getChargingSpeed(context) == BatteryStatus.CHARGING_FAST
++                val label = when {
++                    batteryController.isWirelessCharging -> "Wireless Charging"
++                    isFast -> "Fast Charging"
++                    else -> "Charging"
++                }
++                Pair(isFast, label)
++            } else {
++                Pair(false, if (batteryController.isWirelessCharging) "Wireless Charging" else "Charging")
++            }
++        } catch (_: Exception) {
++            Pair(false, if (batteryController.isWirelessCharging) "Wireless Charging" else "Charging")
++        }
++    }
++
+     fun stopCharging() {
+         if (!chargingListening) return
+         chargingListening = false
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarInteractor.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarInteractor.kt
+index 372f0823e597..bcca70d66eaa 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarInteractor.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarInteractor.kt
+@@ -320,6 +320,11 @@ constructor(
+         _uiState.value = current.copy(pinnedEventIndex = index)
+     }
+ 
++    fun pinEvent(event: IslandEvent) {
++        val idx = _uiState.value.events.indexOfFirst { it.id == event.id }
++        if (idx >= 0) pinEventAt(idx)
++    }
++
+     override fun dismissEvent(event: IslandEvent) {
+         autoDismissJobs[event.id]?.cancel()
+         autoDismissJobs.remove(event.id)
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/model/IslandEvent.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/model/IslandEvent.kt
+index fdbc6b12bff7..cb84ebe3095c 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/model/IslandEvent.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/model/IslandEvent.kt
+@@ -86,6 +86,8 @@ sealed class IslandEvent(open val priority: Int, val id: String) : Comparable<Is
+         val isCharging: Boolean = true,
+         val isPowerSave: Boolean = false,
+         val timeRemaining: String? = null,
++        val isFastCharging: Boolean = false,
++        val chargingSpeedLabel: String? = null,
+     ) : IslandEvent(priority = 50, id = "charging") {
+         override val behavior = EventBehavior(autoDismissMs = 3000L, suppressOnDismiss = false)
+     }
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
+index 276bdcd9f9c2..2b0ce7d09d3f 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarChipViewModel.kt
+@@ -1,8 +1,12 @@
+ package com.android.systemui.axdynamicbar.ui
+ 
++import androidx.compose.ui.graphics.Color
+ import com.android.systemui.animation.Expandable
+ import com.android.systemui.axdynamicbar.domain.AxDynamicBarInteractor
+ import com.android.systemui.axdynamicbar.model.IslandEvent
++import com.android.systemui.privacy.PrivacyItem
++import com.android.systemui.privacy.PrivacyType
++import com.android.systemui.shade.data.repository.PrivacyChipRepository
+ import com.android.systemui.statusbar.chips.ui.model.OngoingActivityChipModel
+ import com.android.systemui.biometrics.AuthController
+ import com.android.systemui.biometrics.domain.interactor.UdfpsOverlayInteractor
+@@ -24,8 +28,22 @@ import kotlinx.coroutines.flow.map
+ import kotlinx.coroutines.flow.stateIn
+ import kotlin.math.roundToInt
+ 
++enum class PrivacyGlowType {
++    NONE,
++    CAMERA,
++    MICROPHONE,
++    SCREEN_RECORD,
++}
++
++data class PrivacyGlowState(
++    val isActive: Boolean = false,
++    val type: PrivacyGlowType = PrivacyGlowType.NONE,
++    val color: Color = Color.Transparent,
++)
++
+ data class AxDynamicBarChipState(
+     val event: IslandEvent,
++    val secondaryEvent: IslandEvent? = null,
+     val eventCount: Int,
+     val pinnedIndex: Int,
+     val allEvents: List<IslandEvent>,
+@@ -69,6 +87,7 @@ constructor(
+     val keyguardExpansion: AxDynamicBarKeyguardExpansion,
+     val statusBarExpansion: AxDynamicBarStatusBarExpansion,
+     private val keyguardIndicationController: KeyguardIndicationController,
++    private val privacyChipRepository: PrivacyChipRepository,
+ ) {
+     val isLowUdfps: StateFlow<Boolean> =
+         udfpsOverlayInteractor.udfpsOverlayParams
+@@ -87,8 +106,11 @@ constructor(
+             .map { uiState ->
+                 if (!uiState.shouldShow) return@map null
+                 val topEvent = uiState.topEvent ?: return@map null
++                val secondaryEvent = uiState.activeEvents.firstOrNull { it.id != topEvent.id }
++                    ?: uiState.events.firstOrNull { it.id != topEvent.id }
+                 AxDynamicBarChipState(
+                     event = topEvent,
++                    secondaryEvent = secondaryEvent,
+                     eventCount = uiState.activeEvents.size,
+                     pinnedIndex = uiState.pinnedEventIndex,
+                     allEvents = uiState.events,
+@@ -97,6 +119,39 @@ constructor(
+             .distinctUntilChanged()
+             .stateIn(applicationScope, SharingStarted.Lazily, null)
+ 
++    val privacyGlowState: StateFlow<PrivacyGlowState> =
++        combine(
++            privacyChipRepository.privacyItems,
++            interactor.uiState,
++        ) { items, uiState ->
++            val hasCamera = items.any { it.privacyType == PrivacyType.TYPE_CAMERA && !it.paused }
++            val hasMic = items.any { it.privacyType == PrivacyType.TYPE_MICROPHONE && !it.paused }
++            val hasMediaProj = items.any { it.privacyType == PrivacyType.TYPE_MEDIA_PROJECTION && !it.paused }
++            val hasAudioRecording = uiState.events.any { it is IslandEvent.AudioRecording }
++            val hasScreenRecord = uiState.events.any { it is IslandEvent.AospChip && it.active.key == "ScreenRecord" }
++
++            when {
++                hasCamera -> PrivacyGlowState(
++                    isActive = true,
++                    type = PrivacyGlowType.CAMERA,
++                    color = Color(0xFF00E676),
++                )
++                hasMic || hasAudioRecording -> PrivacyGlowState(
++                    isActive = true,
++                    type = PrivacyGlowType.MICROPHONE,
++                    color = Color(0xFFFF9100),
++                )
++                hasMediaProj || hasScreenRecord -> PrivacyGlowState(
++                    isActive = true,
++                    type = PrivacyGlowType.SCREEN_RECORD,
++                    color = Color(0xFFFF5252),
++                )
++                else -> PrivacyGlowState(isActive = false, type = PrivacyGlowType.NONE, color = Color.Transparent)
++            }
++        }
++        .distinctUntilChanged()
++        .stateIn(applicationScope, SharingStarted.Lazily, PrivacyGlowState())
++
+     val isEnabled: StateFlow<Boolean> = interactor.settings.isEnabled
+     val isKeyguardEnabled: StateFlow<Boolean> = interactor.settings.isKeyguardEnabled
+     val keyguardBatteryChipMode: StateFlow<Int> = interactor.settings.keyguardBatteryChipMode
+@@ -187,6 +242,8 @@ constructor(
+ 
+     fun cyclePrev() = interactor.cyclePrev()
+ 
++    fun pinEvent(event: IslandEvent) = interactor.pinEvent(event)
++
+     fun dismissEvent(event: IslandEvent) = interactor.dismissEvent(event)
+ 
+     fun togglePlayPause() = interactor.togglePlayPause()
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+index 6a916f402ce4..4bd14068306d 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+@@ -4,6 +4,12 @@ import android.graphics.Rect
+ import android.graphics.drawable.Drawable
+ import androidx.compose.animation.AnimatedVisibility
+ import androidx.compose.animation.animateColorAsState
++import androidx.compose.animation.core.FastOutSlowInEasing
++import androidx.compose.animation.core.RepeatMode
++import androidx.compose.animation.core.animateFloat
++import androidx.compose.animation.core.infiniteRepeatable
++import androidx.compose.animation.core.rememberInfiniteTransition
++import androidx.compose.animation.core.tween
+ import androidx.compose.animation.fadeIn
+ import androidx.compose.animation.fadeOut
+ import androidx.compose.animation.scaleIn
+@@ -26,7 +32,11 @@ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.FlashlightOn
++import androidx.compose.material.icons.filled.Mic
+ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
++import androidx.compose.material3.Icon
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+@@ -38,9 +48,11 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.draw.drawWithContent
++import androidx.compose.ui.geometry.CornerRadius
+ import androidx.compose.ui.geometry.Offset
+ import androidx.compose.ui.geometry.Size
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.lerp
+ import androidx.compose.ui.input.pointer.PointerEventPass
+@@ -68,6 +80,7 @@ import com.android.compose.animation.scene.SceneTransitionLayout
+ import com.android.compose.animation.scene.TransitionBuilder
+ import com.android.compose.animation.scene.transitions
+ import com.android.systemui.axdynamicbar.model.IslandEvent
++import com.android.systemui.statusbar.chips.ui.viewmodel.formatTimeRemainingData
+ import com.android.systemui.axdynamicbar.shared.AlphaIconBg
+ import com.android.systemui.axdynamicbar.shared.AlphaSecondary
+ import com.android.systemui.axdynamicbar.shared.AlphaTertiary
+@@ -229,6 +242,45 @@ private fun AxDynamicBarChipContent(
+             val cutoutOffsetXSetting by viewModel.cutoutOffsetX.collectAsStateWithLifecycle()
+             val cutoutOffsetYSetting by viewModel.cutoutOffsetY.collectAsStateWithLifecycle()
+ 
++            val privacyGlowState by viewModel.privacyGlowState.collectAsStateWithLifecycle()
++            val glowTransition = rememberInfiniteTransition(label = "privacy_glow_pulse")
++            val glowPulseAlpha by glowTransition.animateFloat(
++                initialValue = 0.40f,
++                targetValue = 0.95f,
++                animationSpec = infiniteRepeatable(
++                    animation = tween(1000, easing = FastOutSlowInEasing),
++                    repeatMode = RepeatMode.Reverse,
++                ),
++                label = "privacy_glow_alpha",
++            )
++
++            val privacyGlowModifier = if (privacyGlowState.isActive) {
++                Modifier.drawWithContent {
++                    drawContent()
++                    val strokeW = 1.6.dp.toPx()
++                    val glowColor = privacyGlowState.color.copy(alpha = glowPulseAlpha)
++                    val outerStrokeW = 2.4.dp.toPx()
++                    // Soft aura
++                    drawRoundRect(
++                        color = glowColor.copy(alpha = glowPulseAlpha * 0.35f),
++                        topLeft = Offset(-1.5.dp.toPx(), -1.5.dp.toPx()),
++                        size = Size(size.width + 3.dp.toPx(), size.height + 3.dp.toPx()),
++                        cornerRadius = CornerRadius((size.height + 3.dp.toPx()) / 2f),
++                        style = Stroke(width = outerStrokeW),
++                    )
++                    // Sharp contour ring
++                    drawRoundRect(
++                        color = glowColor,
++                        topLeft = Offset(strokeW / 2f, strokeW / 2f),
++                        size = Size(size.width - strokeW, size.height - strokeW),
++                        cornerRadius = CornerRadius((size.height - strokeW) / 2f),
++                        style = Stroke(width = strokeW),
++                    )
++                }
++            } else {
++                Modifier
++            }
++
+             val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceAtLeast(16f).dp
+             val chipMinWidthDp = if (cutoutWidthSetting != 0) (48f + cutoutWidthSetting).coerceAtLeast(24f).dp else Dp.Unspecified
+             val chipMaxWidthDp = (140f + cutoutWidthSetting).coerceAtLeast(60f).dp
+@@ -237,7 +289,7 @@ private fun AxDynamicBarChipContent(
+                 modifier = Modifier.fillMaxHeight(),
+                 contentAlignment = if (cutoutType == "left") Alignment.CenterStart else Alignment.Center,
+             ) {
+-                Box(
++                Row(
+                     modifier =
+                         Modifier.onGloballyPositioned { coords ->
+                             val bounds = coords.screenBounds(anchorView)
+@@ -252,74 +304,116 @@ private fun AxDynamicBarChipContent(
+                                 )
+                             }
+                         },
++                    verticalAlignment = Alignment.CenterVertically,
+                 ) {
+-                    Row(
+-                        modifier =
+-                            Modifier.height(chipHeightDp)
+-                                .widthIn(min = chipMinWidthDp, max = chipMaxWidthDp)
+-                                .offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
+-                                .then(chipVisibilityModifier)
+-                                .clip(ChipShape)
+-                                .background(accent)
+-                                .then(
+-                                    if (progress != null) {
+-                                        val trackColor = lerp(accent, contentColor, 0.2f)
+-                                        val fillColor = lerp(accent, contentColor, 0.6f)
+-                                        Modifier.drawWithContent {
+-                                            drawContent()
+-                                            val barH = 2.dp.toPx()
+-                                            val y = size.height - barH
+-                                            drawRect(
+-                                                trackColor,
+-                                                topLeft = Offset(0f, y),
+-                                                size = Size(size.width, barH),
+-                                            )
+-                                            drawRect(
+-                                                fillColor,
+-                                                topLeft = Offset(0f, y),
+-                                                size = Size(size.width * progress, barH),
+-                                            )
+-                                        }
+-                                    } else Modifier
++                    Box {
++                        Row(
++                            modifier =
++                                Modifier.height(chipHeightDp)
++                                    .widthIn(min = chipMinWidthDp, max = chipMaxWidthDp)
++                                    .offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
++                                    .then(chipVisibilityModifier)
++                                    .then(privacyGlowModifier)
++                                    .clip(ChipShape)
++                                    .background(accent)
++                                    .then(
++                                        if (progress != null) {
++                                            val trackColor = lerp(accent, contentColor, 0.2f)
++                                            val fillColor = lerp(accent, contentColor, 0.6f)
++                                            Modifier.drawWithContent {
++                                                drawContent()
++                                                val barH = 2.dp.toPx()
++                                                val y = size.height - barH
++                                                drawRect(
++                                                    trackColor,
++                                                    topLeft = Offset(0f, y),
++                                                    size = Size(size.width, barH),
++                                                )
++                                                drawRect(
++                                                    fillColor,
++                                                    topLeft = Offset(0f, y),
++                                                    size = Size(size.width * progress, barH),
++                                                )
++                                            }
++                                        } else Modifier
++                                    )
++                                    .padding(start = SpaceSm, end = SpaceMd),
++                            verticalAlignment = Alignment.CenterVertically,
++                        ) {
++                            if (carrierName != null) {
++                                Text(
++                                    text = carrierName,
++                                    style = MaterialTheme.typography.labelSmall,
++                                    color = contentColor.copy(alpha = AlphaSecondary),
++                                    maxLines = 1,
++                                    softWrap = false,
++                                    overflow = TextOverflow.Ellipsis,
++                                    modifier = Modifier.widthIn(max = 56.dp),
+                                 )
+-                                .padding(start = SpaceSm, end = SpaceMd),
+-                        verticalAlignment = Alignment.CenterVertically,
+-                    ) {
+-                        if (carrierName != null) {
+-                            Text(
+-                                text = carrierName,
+-                                style = MaterialTheme.typography.labelSmall,
+-                                color = contentColor.copy(alpha = AlphaSecondary),
+-                                maxLines = 1,
+-                                softWrap = false,
+-                                overflow = TextOverflow.Ellipsis,
+-                                modifier = Modifier.widthIn(max = 56.dp),
+-                            )
+-                            Text(
+-                                text = " · ",
+-                                style = MaterialTheme.typography.labelSmall,
+-                                color = contentColor.copy(alpha = AlphaTertiary),
++                                Text(
++                                    text = " · ",
++                                    style = MaterialTheme.typography.labelSmall,
++                                    color = contentColor.copy(alpha = AlphaTertiary),
++                                )
++                            }
++                            ChipEventSceneContent(
++                                event = event,
++                                isAlert = isAlert,
++                                chipState = chipState,
++                                contentColor = contentColor,
++                                accent = accent,
++                                chipTextMaxWidth = chipTextMaxWidth,
++                                modifier = Modifier.weight(1f, fill = false),
+                             )
+                         }
+-                        ChipEventSceneContent(
+-                            event = event,
+-                            isAlert = isAlert,
+-                            chipState = chipState,
+-                            contentColor = contentColor,
+-                            accent = accent,
+-                            chipTextMaxWidth = chipTextMaxWidth,
+-                            modifier = Modifier.weight(1f, fill = false),
+-                        )
++                        if (event is IslandEvent.AospChip) {
++                            Expandable(
++                                controller = expandableController,
++                                modifier = Modifier.matchParentSize().graphicsLayer { alpha = 0f },
++                                onClick = null,
++                                useModifierBasedImplementation = StatusBarChipsReturnAnimations.isEnabled,
++                                defaultMinSize = false,
++                            ) {
++                                Box(Modifier.fillMaxSize())
++                            }
++                        }
+                     }
+-                    if (event is IslandEvent.AospChip) {
+-                        Expandable(
+-                            controller = expandableController,
+-                            modifier = Modifier.matchParentSize().graphicsLayer { alpha = 0f },
+-                            onClick = null,
+-                            useModifierBasedImplementation = StatusBarChipsReturnAnimations.isEnabled,
+-                            defaultMinSize = false,
+-                        ) {
+-                            Box(Modifier.fillMaxSize())
++
++                    // Secondary Satellite Capsule for Dual-Capsule Split Physics
++                    AnimatedVisibility(
++                        visible = chipState.secondaryEvent != null,
++                        enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.5f, animationSpec = motionScheme.defaultSpatialSpec()),
++                        exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.5f, animationSpec = motionScheme.fastSpatialSpec()),
++                    ) {
++                        chipState.secondaryEvent?.let { secondaryEvent ->
++                            Row(verticalAlignment = Alignment.CenterVertically) {
++                                Spacer(Modifier.width(6.dp))
++                                SatelliteCapsule(
++                                    secondaryEvent = secondaryEvent,
++                                    chipHeightDp = chipHeightDp,
++                                    privacyGlowModifier = privacyGlowModifier,
++                                    modifier = Modifier.offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
++                                        .pointerInput(secondaryEvent) {
++                                            awaitEachGesture {
++                                                val down = awaitFirstDown(pass = PointerEventPass.Initial)
++                                                val startX = down.position.x
++                                                val startY = down.position.y
++                                                while (true) {
++                                                    val pointerEvent = awaitPointerEvent(PointerEventPass.Initial)
++                                                    val change = pointerEvent.changes.firstOrNull() ?: break
++                                                    if (!change.pressed) {
++                                                        change.consume()
++                                                        viewModel.pinEvent(secondaryEvent)
++                                                        break
++                                                    }
++                                                    val dx = abs(change.position.x - startX)
++                                                    val dy = abs(change.position.y - startY)
++                                                    if (dx > touchSlop || dy > touchSlop) break
++                                                }
++                                            }
++                                        },
++                                )
++                            }
+                         }
+                     }
+                 }
+@@ -533,6 +627,12 @@ private fun ChipDefaultEventContent(
+                 Modifier.weight(1f, fill = false).widthIn(max = chipTextMaxWidth),
+                 overrideColor = contentColor,
+             )
++            Spacer(Modifier.width(SpaceXs))
++            AudioWaveformVisualizer(
++                isPlaying = event.isPlaying,
++                color = contentColor,
++                modifier = Modifier.size(width = 14.dp, height = 12.dp),
++            )
+         } else {
+             PillEventText(
+                 event,
+@@ -540,7 +640,102 @@ private fun ChipDefaultEventContent(
+                 overrideColor = contentColor,
+             )
+         }
+-        ChipEventCountBadge(chipState, accent, contentColor)
++        if (chipState.secondaryEvent == null) {
++            ChipEventCountBadge(chipState, accent, contentColor)
++        }
++    }
++}
++
++@Composable
++private fun SatelliteCapsule(
++    secondaryEvent: IslandEvent,
++    chipHeightDp: Dp,
++    privacyGlowModifier: Modifier = Modifier,
++    modifier: Modifier = Modifier,
++) {
++    val secAccent = chipAccentColorFor(secondaryEvent)
++    val animatedSecAccent by animateColorAsState(
++        secAccent,
++        MaterialTheme.motionScheme.fastEffectsSpec(),
++        label = "sec_accent",
++    )
++    val secContentColor by animateColorAsState(
++        chipContentColorOn(secAccent),
++        MaterialTheme.motionScheme.fastEffectsSpec(),
++        label = "sec_content",
++    )
++
++    Box(
++        modifier = modifier
++            .height(chipHeightDp)
++            .widthIn(min = chipHeightDp)
++            .then(privacyGlowModifier)
++            .clip(ChipShape)
++            .background(animatedSecAccent)
++            .padding(horizontal = 6.dp),
++        contentAlignment = Alignment.Center,
++    ) {
++        SecondaryCapsuleContent(secondaryEvent, secContentColor)
++    }
++}
++
++@Composable
++private fun SecondaryCapsuleContent(
++    event: IslandEvent,
++    contentColor: Color,
++) {
++    when (event) {
++        is IslandEvent.Timer -> {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                PillEventIcon(event, tint = contentColor, animated = true)
++                val timeData = formatTimeRemainingData(event.endTimeMs)
++                if (timeData != null && timeData.text.isNotEmpty()) {
++                    Spacer(Modifier.width(2.dp))
++                    Text(
++                        text = timeData.text,
++                        style = PillPrimary,
++                        color = contentColor,
++                        maxLines = 1,
++                        softWrap = false,
++                    )
++                }
++            }
++        }
++        is IslandEvent.Stopwatch -> {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                PillEventIcon(event, tint = contentColor, animated = true)
++            }
++        }
++        is IslandEvent.Media -> {
++            AudioWaveformVisualizer(
++                isPlaying = event.isPlaying,
++                color = contentColor,
++                modifier = Modifier.size(width = 14.dp, height = 12.dp),
++            )
++        }
++        is IslandEvent.AudioRecording -> {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                PulsingDot(color = contentColor, size = 6.dp)
++                Spacer(Modifier.width(2.dp))
++                Icon(
++                    Icons.Filled.Mic,
++                    null,
++                    tint = contentColor,
++                    modifier = Modifier.size(12.dp),
++                )
++            }
++        }
++        is IslandEvent.Torch -> {
++            Icon(
++                Icons.Filled.FlashlightOn,
++                null,
++                tint = contentColor,
++                modifier = Modifier.size(13.dp),
++            )
++        }
++        else -> {
++            PillEventIcon(event, tint = contentColor, animated = true)
++        }
+     }
+ }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedMediaContent.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedMediaContent.kt
+index cf3f821a3ba4..3c4487c5d027 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedMediaContent.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedMediaContent.kt
+@@ -109,13 +109,24 @@ internal fun MediaCard(event: IslandEvent.Media, interactor: IslandActions) {
+                             overflow = TextOverflow.Ellipsis,
+                         )
+                         if (event.artist.isNotEmpty()) {
+-                            Text(
+-                                event.artist,
+-                                color = accent,
+-                                style = MaterialTheme.typography.bodyMedium,
+-                                maxLines = 1,
+-                                overflow = TextOverflow.Ellipsis,
+-                            )
++                            Row(
++                                verticalAlignment = Alignment.CenterVertically,
++                                horizontalArrangement = Arrangement.spacedBy(SpaceSm),
++                            ) {
++                                Text(
++                                    event.artist,
++                                    color = accent,
++                                    style = MaterialTheme.typography.bodyMedium,
++                                    maxLines = 1,
++                                    overflow = TextOverflow.Ellipsis,
++                                    modifier = Modifier.weight(1f, fill = false),
++                                )
++                                AudioWaveformVisualizer(
++                                    isPlaying = event.isPlaying,
++                                    color = accent,
++                                    modifier = Modifier.size(width = 20.dp, height = 14.dp),
++                                )
++                            }
+                         }
+                     }
+                     event.appIcon?.let { icon ->
+@@ -194,13 +205,24 @@ internal fun MediaExpanded(
+                         overflow = TextOverflow.Ellipsis,
+                     )
+                     if (event.artist.isNotEmpty()) {
+-                        Text(
+-                            event.artist,
+-                            color = accent,
+-                            style = MaterialTheme.typography.bodySmall,
+-                            maxLines = 1,
+-                            overflow = TextOverflow.Ellipsis,
+-                        )
++                        Row(
++                            verticalAlignment = Alignment.CenterVertically,
++                            horizontalArrangement = Arrangement.spacedBy(SpaceSm),
++                        ) {
++                            Text(
++                                event.artist,
++                                color = accent,
++                                style = MaterialTheme.typography.bodySmall,
++                                maxLines = 1,
++                                overflow = TextOverflow.Ellipsis,
++                                modifier = Modifier.weight(1f, fill = false),
++                            )
++                            AudioWaveformVisualizer(
++                                isPlaying = event.isPlaying,
++                                color = accent,
++                                modifier = Modifier.size(width = 16.dp, height = 12.dp),
++                            )
++                        }
+                     }
+                 }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedSystemContent.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedSystemContent.kt
+index 4ff95f6cf93d..cdb641790cb3 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedSystemContent.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedSystemContent.kt
+@@ -46,6 +46,11 @@ import com.android.systemui.res.R
+ 
+ @Composable
+ internal fun ChargingExpanded(event: IslandEvent.Charging) {
++    val chargingTitle = when {
++        event.isWireless -> stringResource(R.string.ax_dynamic_bar_wireless_charging)
++        event.isFastCharging -> stringResource(R.string.ax_dynamic_bar_fast_charging)
++        else -> stringResource(R.string.ax_dynamic_bar_charging)
++    }
+     ExpandedCardLayout(
+         accentColor = GreenAccent,
+         icon = {
+@@ -53,8 +58,7 @@ internal fun ChargingExpanded(event: IslandEvent.Charging) {
+         },
+         title = {
+             Text(
+-                if (event.isWireless) stringResource(R.string.ax_dynamic_bar_wireless_charging)
+-                else stringResource(R.string.ax_dynamic_bar_charging),
++                chargingTitle,
+                 color = OnCardText,
+                 style = MaterialTheme.typography.titleMedium,
+             )
+@@ -63,6 +67,9 @@ internal fun ChargingExpanded(event: IslandEvent.Charging) {
+                 horizontalArrangement = Arrangement.spacedBy(SpaceMd),
+             ) {
+                 StatusChip("${event.level}%", GreenAccent)
++                if (event.isFastCharging) {
++                    StatusChip(stringResource(R.string.ax_dynamic_bar_fast_charge), MintAccent)
++                }
+                 if (event.isPowerSave) {
+                     StatusChip(stringResource(R.string.ax_dynamic_bar_battery_saver), OrangeAccent)
+                 }
+@@ -330,9 +337,13 @@ internal fun RowScope.CompactChargingRow(event: IslandEvent.Charging) {
+     }
+     Spacer(Modifier.width(SpaceLg))
+     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(SpaceXxs)) {
++        val title = when {
++            event.isWireless -> stringResource(R.string.ax_dynamic_bar_wireless_charging)
++            event.isFastCharging -> stringResource(R.string.ax_dynamic_bar_fast_charging)
++            else -> stringResource(R.string.ax_dynamic_bar_charging)
++        }
+         Text(
+-            if (event.isWireless) stringResource(R.string.ax_dynamic_bar_wireless_charging)
+-            else stringResource(R.string.ax_dynamic_bar_charging),
++            title,
+             color = OnCardText,
+             style = MaterialTheme.typography.bodySmall,
+         )
+@@ -340,6 +351,7 @@ internal fun RowScope.CompactChargingRow(event: IslandEvent.Charging) {
+         Text(
+             buildString {
+                 append("${event.level}%")
++                if (event.isFastCharging) append(" · Fast")
+                 saverLabel?.let { append(" · $it") }
+             },
+             color = if (event.isPowerSave) OrangeAccent else GreenAccent,
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/PillIslandContent.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/PillIslandContent.kt
+index cb61295df59f..6a15ebd7fd40 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/PillIslandContent.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/PillIslandContent.kt
+@@ -524,16 +524,30 @@ private fun AnimatedBoltIcon(color: Color) {
+     val transition = rememberInfiniteTransition(label = "bolt")
+     val glow by
+         transition.animateFloat(
+-            initialValue = 0.5f,
++            initialValue = 0.6f,
+             targetValue = 1f,
+             animationSpec =
+-                infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
++                infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+             label = "bolt_glow",
+         )
++    val scalePulse by
++        transition.animateFloat(
++            initialValue = 0.95f,
++            targetValue = 1.05f,
++            animationSpec =
++                infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
++            label = "bolt_scale",
++        )
+     val boltPath = remember { Path() }
+     Canvas(modifier = Modifier.size(SizeBadge)) {
+         val w = size.width
+         val h = size.height
++        // Ambient electrical glow behind the bolt
++        drawCircle(
++            color = color.copy(alpha = (glow * 0.25f)),
++            radius = size.minDimension * 0.45f * scalePulse,
++            center = Offset(w / 2f, h / 2f),
++        )
+         boltPath.rewind()
+         boltPath.moveTo(w * 0.55f, h * 0.05f)
+         boltPath.lineTo(w * 0.25f, h * 0.50f)
+@@ -1113,7 +1127,14 @@ internal fun PillEventText(
+                 overrideColor ?: TealAccent,
+                 modifier,
+             )
+-        is IslandEvent.Charging -> MarqueeLabel("${event.level}%", overrideColor ?: GreenAccent, modifier)
++        is IslandEvent.Charging -> {
++            val label = when {
++                event.isFastCharging -> stringResource(R.string.ax_dynamic_bar_fast_charging)
++                event.isWireless -> stringResource(R.string.ax_dynamic_bar_wireless_charging)
++                else -> stringResource(R.string.ax_dynamic_bar_charging)
++            }
++            MarqueeLabel("${event.level}% · $label", overrideColor ?: GreenAccent, modifier)
++        }
+         is IslandEvent.Alarm ->
+             MarqueeLabel(event.label.ifEmpty { stringResource(R.string.ax_dynamic_bar_alarm) }, overrideColor ?: OrangeAccent, modifier)
+         is IslandEvent.Timer -> TimerText(event, modifier, overrideColor)
+@@ -1538,6 +1559,72 @@ fun PulsingDot(color: Color, size: Dp = 8.dp, durationMs: Int = 600, minAlpha: F
+     Box(modifier = Modifier.size(size).clip(CircleShape).background(color.copy(alpha = alpha)))
+ }
+ 
++@Composable
++fun AudioWaveformVisualizer(
++    isPlaying: Boolean,
++    color: Color,
++    modifier: Modifier = Modifier.size(width = 14.dp, height = 12.dp),
++    barCount: Int = 4,
++) {
++    val phaseState: State<Float>?
++    if (isPlaying) {
++        val transition = rememberInfiniteTransition(label = "audio_wave_transition")
++        phaseState = transition.animateFloat(
++            initialValue = 0f,
++            targetValue = (2f * PI).toFloat(),
++            animationSpec = infiniteRepeatable(
++                tween(720, easing = LinearEasing),
++                RepeatMode.Restart,
++            ),
++            label = "audio_wave_phase",
++        )
++    } else {
++        phaseState = null
++    }
++
++    val playRatio by animateFloatAsState(
++        targetValue = if (isPlaying) 1f else 0f,
++        animationSpec = tween(350, easing = FastOutSlowInEasing),
++        label = "audio_wave_ratio",
++    )
++
++    Canvas(modifier = modifier) {
++        val phase = phaseState?.value ?: 0f
++        val w = size.width
++        val h = size.height
++        val barW = (w / (barCount * 1.8f)).coerceAtLeast(1.5.dp.toPx())
++        val totalBarsW = barCount * barW
++        val gap = ((w - totalBarsW) / (barCount - 1).coerceAtLeast(1)).coerceAtLeast(1.dp.toPx())
++        val minH = 2.2.dp.toPx()
++        val maxH = (h * 0.95f).coerceAtLeast(minH)
++
++        val freqMultipliers = floatArrayOf(1.0f, 1.7f, 1.3f, 1.9f)
++        val phaseOffsets = floatArrayOf(0.0f, 1.3f, 2.7f, 0.8f)
++
++        for (i in 0 until barCount) {
++            val freq = freqMultipliers.getOrElse(i) { 1f }
++            val pOffset = phaseOffsets.getOrElse(i) { 0f }
++            val rawSine = (sin(phase * freq + pOffset) + 1f) / 2f
++            val harmonic = (cos(phase * freq * 0.5f + pOffset) + 1f) / 4f
++            val dynamicFactor = (rawSine * 0.75f + harmonic).coerceIn(0.15f, 1.0f)
++
++            val liveH = minH + (maxH - minH) * dynamicFactor
++            val barH = minH + (liveH - minH) * playRatio
++            val x = i * (barW + gap) + barW / 2f
++            val yTop = (h - barH) / 2f
++            val yBottom = yTop + barH
++
++            drawLine(
++                color = color,
++                start = Offset(x, yTop),
++                end = Offset(x, yBottom),
++                strokeWidth = barW,
++                cap = StrokeCap.Round,
++            )
++        }
++    }
++}
++
+ @Composable
+ fun WaveformAnimation(color: Color, modifier: Modifier = Modifier.size(34.dp, 20.dp), isAnimating: Boolean = true, barCount: Int = 4) {
+     val phaseState: State<Float>?
+-- 
+2.43.0
+

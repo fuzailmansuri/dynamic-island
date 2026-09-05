@@ -1,0 +1,617 @@
+From 90220d8ac8e1f0c6c7c6a1a0e40d6a4b9667cd48 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 19:53:13 +0000
+Subject: [PATCH 13/13] SystemUI: Implement Dynamic Island punch-hole deadzone
+ split and calibrate status bar gaps
+
+---
+ packages/SystemUI/res/values/dimens.xml       |  18 +-
+ .../ui/AxDynamicBarExpandedPanel.kt           |  10 +-
+ .../ui/compose/AxDynamicBarChip.kt            | 436 +++++++++++++++++-
+ .../ui/compose/ExpandedIslandContent.kt       |   2 +-
+ .../systemui/battery/BatteryMeterView.java    |   2 +-
+ .../battery/ui/composable/UnifiedBattery.kt   |   4 +-
+ 6 files changed, 433 insertions(+), 39 deletions(-)
+
+diff --git a/packages/SystemUI/res/values/dimens.xml b/packages/SystemUI/res/values/dimens.xml
+index 01d846506a71..7fc631b9bf8d 100644
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -191,13 +191,13 @@
+     <!-- End padding for left-aligned status bar clock -->
+     <dimen name="status_bar_left_clock_end_padding">2sp</dimen>
+ 
+-    <!-- Margins before/after the new wifi icon. 5dp spread baseline (see
++    <!-- Margins before/after the new wifi icon. 3.5dp spread baseline (see
+          sw1500 7.5sp = 1.5x). -->
+-    <dimen name="status_bar_wifi_signal_horizontal_margin">5dp</dimen>
++    <dimen name="status_bar_wifi_signal_horizontal_margin">3.5dp</dimen>
+ 
+     <!-- Spacing after the wifi signals that is present if there are any icons following it.
+-         4dp spread baseline (see sw1500 6sp = 1.5x). -->
+-    <dimen name="status_bar_wifi_signal_spacer_width">4dp</dimen>
++         3dp spread baseline (see sw1500 6sp = 1.5x). -->
++    <dimen name="status_bar_wifi_signal_spacer_width">3dp</dimen>
+ 
+     <!-- Size of the view displaying the wifi inout icon in the status bar. -->
+     <dimen name="status_bar_wifi_inout_container_size">17.6dp</dimen>
+@@ -227,9 +227,9 @@
+     <dimen name="status_bar_mobile_container_corner_radius">9sp</dimen>
+ 
+     <!-- Start-side margin for the mobile container (before the RAT or triangle).
+-         5dp spread baseline (see sw1500 7.5sp = 1.5x). -->
+-    <dimen name="status_bar_mobile_container_margin_start">5dp</dimen>
+-    <dimen name="status_bar_mobile_container_margin_end">5dp</dimen>
++         3.5dp spread baseline (see sw1500 7.5sp = 1.5x). -->
++    <dimen name="status_bar_mobile_container_margin_start">3.5dp</dimen>
++    <dimen name="status_bar_mobile_container_margin_end">3.5dp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata -->
+@@ -934,7 +934,9 @@
+     <dimen name="qs_emergency_calls_only_text_size">12sp</dimen>
+ 
+     <!-- Padding before battery level text in status bar, QS, and Keyguard -->
+-    <dimen name="battery_level_padding_start">4dp</dimen>
++    <dimen name="battery_level_padding_start">5dp</dimen>
++    <!-- Gap between battery icon and percentage text -->
++    <dimen name="status_bar_battery_percent_margin_start">5dp</dimen>
+ 
+     <dimen name="notification_section_header_height">48dp</dimen>
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
+index 6d446d8bf33d..40b523bdaad3 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/AxDynamicBarExpandedPanel.kt
+@@ -16,6 +16,7 @@ import androidx.compose.animation.core.Animatable
+ import androidx.compose.foundation.gestures.awaitEachGesture
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.WindowInsets
++import androidx.compose.foundation.layout.displayCutout
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.statusBars
+@@ -209,11 +210,16 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
+     val rootView = LocalView.current
+     val isLargeScreen = Utilities.isLargeScreen(LocalContext.current)
+     val cutoutOffsetY by viewModel.cutoutOffsetY.collectAsStateWithLifecycle()
++    val cutoutHeightSetting by viewModel.cutoutHeight.collectAsStateWithLifecycle()
++    val statusBarTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
++    val displayCutoutTop = with(density) { WindowInsets.displayCutout.getTop(this).toDp() }
++    val baseTop = maxOf(statusBarTop, displayCutoutTop, 24.dp)
+     val topPad =
+-        with(density) { WindowInsets.statusBars.getTop(this).toDp() } +
++        baseTop +
++            cutoutHeightSetting.coerceAtLeast(0).dp +
+             4.dp +
+             (if (isLargeScreen) 4.dp else 0.dp) +
+-            cutoutOffsetY.dp
++            cutoutOffsetY.coerceAtLeast(0).dp
+     val chipState by viewModel.chipState.collectAsStateWithLifecycle()
+     val isExpanded by viewModel.isExpanded.collectAsStateWithLifecycle()
+     val chipX by viewModel.chipCenterXFraction.collectAsStateWithLifecycle()
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+index 2abe132a3a9f..579caa93edd6 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+@@ -83,7 +83,13 @@ import com.android.compose.animation.scene.SceneTransitionLayout
+ import com.android.compose.animation.scene.TransitionBuilder
+ import com.android.compose.animation.scene.transitions
+ import com.android.systemui.axdynamicbar.model.IslandEvent
++import com.android.systemui.axdynamicbar.model.RecordingState
+ import com.android.systemui.axdynamicbar.shared.formatCountdownLong
++import com.android.systemui.statusbar.chips.ui.model.OngoingActivityChipModel
++import com.android.systemui.statusbar.chips.ui.viewmodel.formatTimeRemainingData
++import com.android.systemui.statusbar.chips.ui.viewmodel.rememberChronometerState
++import com.android.systemui.statusbar.chips.ui.viewmodel.rememberTimeRemainingState
++import com.android.systemui.statusbar.chips.ui.viewmodel.toFormatter
+ import com.android.systemui.axdynamicbar.shared.AlphaIconBg
+ import com.android.systemui.axdynamicbar.shared.AlphaSecondary
+ import com.android.systemui.axdynamicbar.shared.AlphaTertiary
+@@ -287,8 +293,20 @@ private fun AxDynamicBarChipContent(
+             }
+ 
+             val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceIn(16f, 32f).dp
+-            val chipMinWidthDp = if (cutoutWidthSetting != 0) (48f + cutoutWidthSetting).coerceAtLeast(24f).dp else Dp.Unspecified
+-            val chipMaxWidthDp = (120f + cutoutWidthSetting).coerceIn(60f, 140f).dp
++            val chipMinWidthDp =
++                if (cutoutType == "center") {
++                    (64f + cutoutWidthSetting).coerceAtLeast(36f).dp
++                } else if (cutoutWidthSetting != 0) {
++                    (48f + cutoutWidthSetting).coerceAtLeast(24f).dp
++                } else {
++                    Dp.Unspecified
++                }
++            val chipMaxWidthDp =
++                if (cutoutType == "center") {
++                    (180f + cutoutWidthSetting).coerceIn(90f, 220f).dp
++                } else {
++                    (120f + cutoutWidthSetting).coerceIn(60f, 140f).dp
++                }
+             val safeOffsetX = cutoutOffsetXSetting.coerceIn(-8, 8)
+             val safeOffsetY = cutoutOffsetYSetting.coerceIn(-8, 8)
+ 
+@@ -344,34 +362,49 @@ private fun AxDynamicBarChipContent(
+                                             }
+                                         } else Modifier
+                                     )
+-                                    .padding(start = SpaceSm, end = SpaceMd),
++                                    .padding(
++                                        start = SpaceSm,
++                                        end = if (cutoutType == "center") SpaceSm else SpaceMd,
++                                    ),
+                             verticalAlignment = Alignment.CenterVertically,
+                         ) {
+-                            if (carrierName != null) {
+-                                Text(
+-                                    text = carrierName,
+-                                    style = MaterialTheme.typography.labelSmall,
+-                                    color = contentColor.copy(alpha = AlphaSecondary),
+-                                    maxLines = 1,
+-                                    softWrap = false,
+-                                    overflow = TextOverflow.Ellipsis,
+-                                    modifier = Modifier.widthIn(max = 56.dp),
++                            if (cutoutType == "center") {
++                                CenterCutoutCompactPillContent(
++                                    event = event,
++                                    chipState = chipState,
++                                    contentColor = contentColor,
++                                    accent = accent,
++                                    cutoutWidthSetting = cutoutWidthSetting,
++                                    chipTextMaxWidth = chipTextMaxWidth,
++                                    carrierName = carrierName,
+                                 )
+-                                Text(
+-                                    text = " · ",
+-                                    style = MaterialTheme.typography.labelSmall,
+-                                    color = contentColor.copy(alpha = AlphaTertiary),
++                            } else {
++                                if (carrierName != null) {
++                                    Text(
++                                        text = carrierName,
++                                        style = MaterialTheme.typography.labelSmall,
++                                        color = contentColor.copy(alpha = AlphaSecondary),
++                                        maxLines = 1,
++                                        softWrap = false,
++                                        overflow = TextOverflow.Ellipsis,
++                                        modifier = Modifier.widthIn(max = 56.dp),
++                                    )
++                                    Text(
++                                        text = " · ",
++                                        style = MaterialTheme.typography.labelSmall,
++                                        color = contentColor.copy(alpha = AlphaTertiary),
++                                    )
++                                }
++                                ChipEventSceneContent(
++                                    event = event,
++                                    isAlert = isAlert,
++                                    chipState = chipState,
++                                    contentColor = contentColor,
++                                    accent = accent,
++                                    chipTextMaxWidth = chipTextMaxWidth,
++                                    modifier = Modifier.weight(1f, fill = false),
+                                 )
+                             }
+-                            ChipEventSceneContent(
+-                                event = event,
+-                                isAlert = isAlert,
+-                                chipState = chipState,
+-                                contentColor = contentColor,
+-                                accent = accent,
+-                                chipTextMaxWidth = chipTextMaxWidth,
+-                                modifier = Modifier.weight(1f, fill = false),
+-                            )
+                         }
+                         if (event is IslandEvent.AospChip) {
+                             Expandable(
+@@ -653,6 +686,359 @@ private fun ChipDefaultEventContent(
+     }
+ }
+ 
++@Composable
++private fun CenterCutoutCompactPillContent(
++    event: IslandEvent,
++    chipState: AxDynamicBarChipState,
++    contentColor: Color,
++    accent: Color,
++    cutoutWidthSetting: Int,
++    chipTextMaxWidth: Dp,
++    carrierName: String?,
++) {
++    // 1. Leading Slot (left of camera): Event icon, album art, call avatar
++    Row(verticalAlignment = Alignment.CenterVertically) {
++        if (carrierName != null) {
++            Text(
++                text = carrierName,
++                style = MaterialTheme.typography.labelSmall,
++                color = contentColor.copy(alpha = AlphaSecondary),
++                maxLines = 1,
++                softWrap = false,
++                overflow = TextOverflow.Ellipsis,
++                modifier = Modifier.widthIn(max = 48.dp),
++            )
++            Text(
++                text = " · ",
++                style = MaterialTheme.typography.labelSmall,
++                color = contentColor.copy(alpha = AlphaTertiary),
++            )
++        }
++        CenterCutoutLeadingSlot(event, contentColor)
++    }
++
++    // 2. Camera Cutout Dead-Zone Spacer: zero text/graphics drawn under physical lens
++    Spacer(modifier = Modifier.width((28f + cutoutWidthSetting).coerceAtLeast(14f).dp))
++
++    // 3. Trailing Slot (right of camera): Animated equalizer bars, call timer, countdown, badge text
++    Row(verticalAlignment = Alignment.CenterVertically) {
++        CenterCutoutTrailingSlot(
++            event = event,
++            chipState = chipState,
++            contentColor = contentColor,
++            accent = accent,
++            chipTextMaxWidth = chipTextMaxWidth,
++        )
++    }
++}
++
++@Composable
++private fun CenterCutoutLeadingSlot(
++    event: IslandEvent,
++    contentColor: Color,
++) {
++    when (event) {
++        is IslandEvent.Media -> {
++            if (event.albumArt != null) {
++                Image(
++                    bitmap = event.albumArt.toScaledBitmap(16.dp),
++                    contentDescription = null,
++                    modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)),
++                    contentScale = ContentScale.Crop,
++                )
++            } else {
++                PillEventIcon(event, tint = contentColor, animated = false)
++            }
++        }
++        is IslandEvent.Notification -> {
++            if (event.appIcon != null) {
++                Image(
++                    bitmap = event.appIcon.toScaledBitmap(16.dp),
++                    contentDescription = null,
++                    modifier = Modifier.size(16.dp).clip(ShapeXs),
++                    contentScale = ContentScale.Crop,
++                )
++            } else {
++                PillEventIcon(event, tint = contentColor, animated = false)
++            }
++        }
++        is IslandEvent.Sports -> {
++            StatusBarSportsTeamBadge(event.team1Name, event.team1Icon, contentColor)
++        }
++        else -> {
++            PillEventIcon(event, tint = contentColor, animated = false)
++        }
++    }
++}
++
++@Composable
++private fun CenterCutoutTrailingSlot(
++    event: IslandEvent,
++    chipState: AxDynamicBarChipState,
++    contentColor: Color,
++    accent: Color,
++    chipTextMaxWidth: Dp,
++) {
++    when (event) {
++        is IslandEvent.Media -> {
++            AudioWaveformVisualizer(
++                isPlaying = event.isPlaying,
++                color = contentColor,
++                modifier = Modifier.size(width = 14.dp, height = 12.dp),
++            )
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            }
++        }
++        is IslandEvent.AospChip -> {
++            when (val c = event.active.content) {
++                is OngoingActivityChipModel.Content.Timer -> {
++                    val timerState =
++                        rememberChronometerState(
++                            chronometer = c.value,
++                            formatter = c.format.toFormatter(),
++                            timeSource = c.timeSource,
++                        )
++                    timerState.currentTimeText?.let { text ->
++                        Text(
++                            text = text,
++                            style = PillPrimary,
++                            color = contentColor,
++                            maxLines = 1,
++                            softWrap = false,
++                        )
++                    }
++                }
++                is OngoingActivityChipModel.Content.Countdown -> {
++                    Text(
++                        text = formatCountdownLong(c.secondsUntilStarted * 1000L),
++                        style = PillPrimary,
++                        color = contentColor,
++                        maxLines = 1,
++                        softWrap = false,
++                    )
++                }
++                is OngoingActivityChipModel.Content.ShortTimeDelta -> {
++                    val timeRemainingState =
++                        rememberTimeRemainingState(
++                            timeSource = c.timeSource,
++                            data =
++                                formatTimeRemainingData(
++                                    totalDuration = c.delta,
++                                    currentTime = c.timeSource.elapsedRealtime(),
++                                ),
++                        )
++                    timeRemainingState.currentTimeText?.let { text ->
++                        Text(
++                            text = text,
++                            style = PillPrimary,
++                            color = contentColor,
++                            maxLines = 1,
++                            softWrap = false,
++                        )
++                    }
++                }
++                is OngoingActivityChipModel.Content.Text -> {
++                    Text(
++                        text = c.text,
++                        style = PillPrimary,
++                        color = contentColor,
++                        maxLines = 1,
++                        softWrap = false,
++                        overflow = TextOverflow.Ellipsis,
++                        modifier = Modifier.widthIn(max = chipTextMaxWidth),
++                    )
++                }
++                is OngoingActivityChipModel.Content.TextVariants -> {
++                    val text = c.textVariants.firstOrNull() ?: ""
++                    if (text.isNotBlank()) {
++                        Text(
++                            text = text,
++                            style = PillPrimary,
++                            color = contentColor,
++                            maxLines = 1,
++                            softWrap = false,
++                            overflow = TextOverflow.Ellipsis,
++                            modifier = Modifier.widthIn(max = chipTextMaxWidth),
++                        )
++                    }
++                }
++                is OngoingActivityChipModel.Content.IconOnly -> {}
++            }
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            }
++        }
++        is IslandEvent.Timer -> {
++            if (event.endTimeMs > 0L) {
++                if (event.isPaused) {
++                    Text(
++                        text = stringResource(R.string.ax_dynamic_bar_paused),
++                        style = PillPrimary,
++                        color = contentColor,
++                        maxLines = 1,
++                        softWrap = false,
++                    )
++                } else {
++                    var remainingMs by
++                        remember(event.endTimeMs) {
++                            mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
++                        }
++                    LaunchedEffect(event.endTimeMs) {
++                        while (remainingMs > 0L) {
++                            delay(500)
++                            remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
++                        }
++                    }
++                    Text(
++                        text = formatCountdownLong(remainingMs),
++                        style = PillPrimary,
++                        color = contentColor,
++                        maxLines = 1,
++                        softWrap = false,
++                    )
++                }
++            } else {
++                Text(
++                    text = event.label.ifEmpty { stringResource(R.string.ax_dynamic_bar_timer) },
++                    style = PillPrimary,
++                    color = contentColor,
++                    maxLines = 1,
++                    softWrap = false,
++                )
++            }
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            }
++        }
++        is IslandEvent.Stopwatch -> {
++            if (!event.isRunning) {
++                Text(
++                    text = stringResource(R.string.ax_dynamic_bar_paused),
++                    style = PillPrimary,
++                    color = contentColor,
++                    maxLines = 1,
++                    softWrap = false,
++                )
++            } else {
++                var elapsedMs by
++                    remember(event.startTimeMs) {
++                        mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
++                    }
++                LaunchedEffect(event.startTimeMs) {
++                    while (true) {
++                        delay(200)
++                        elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
++                    }
++                }
++                Text(
++                    text = formatCountdownLong(elapsedMs),
++                    style = PillPrimary,
++                    color = contentColor,
++                    maxLines = 1,
++                    softWrap = false,
++                )
++            }
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            }
++        }
++        is IslandEvent.AudioRecording -> {
++            PulsingDot(color = contentColor, size = 6.dp)
++            var elapsedMs by
++                remember(event.startTimeMs) {
++                    mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
++                }
++            LaunchedEffect(event.startTimeMs, event.state) {
++                while (event.state == RecordingState.RECORDING) {
++                    delay(500)
++                    elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
++                }
++            }
++            Spacer(Modifier.width(SpaceXs))
++            Text(
++                text = formatCountdownLong(elapsedMs),
++                style = PillPrimary,
++                color = contentColor,
++                maxLines = 1,
++                softWrap = false,
++            )
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            }
++        }
++        is IslandEvent.Sports -> {
++            Text(
++                text =
++                    if (event.score1.isNotEmpty()) "${event.score1} - ${event.score2}"
++                    else stringResource(R.string.ax_dynamic_bar_sports_vs),
++                style = PillPrimary,
++                color = contentColor,
++                maxLines = 1,
++                softWrap = false,
++            )
++            Spacer(Modifier.width(SpaceXs))
++            StatusBarSportsTeamBadge(event.team2Name, event.team2Icon, contentColor)
++        }
++        is IslandEvent.Charging -> {
++            Text(
++                text = "${event.level}%",
++                style = PillPrimary,
++                color = contentColor,
++                maxLines = 1,
++                softWrap = false,
++            )
++        }
++        is IslandEvent.Torch -> {
++            val label =
++                if (event.supportsLevel) "${(event.level.toFloat() / event.maxLevel * 100).toInt()}%"
++                else stringResource(R.string.ax_dynamic_bar_on)
++            Text(
++                text = label,
++                style = PillPrimary,
++                color = contentColor,
++                maxLines = 1,
++                softWrap = false,
++            )
++        }
++        is IslandEvent.BiometricUnlock -> {
++            Text(
++                text = stringResource(R.string.ax_dynamic_bar_unlocked),
++                style = PillPrimary,
++                color = contentColor,
++                maxLines = 1,
++                softWrap = false,
++            )
++        }
++        is IslandEvent.Notification -> {
++            if (chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            } else {
++                Text(
++                    text = event.appName ?: "",
++                    style = PillPrimary,
++                    color = contentColor,
++                    maxLines = 1,
++                    softWrap = false,
++                    overflow = TextOverflow.Ellipsis,
++                    modifier = Modifier.widthIn(max = chipTextMaxWidth),
++                )
++            }
++        }
++        else -> {
++            if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
++                ChipEventCountBadge(chipState, accent, contentColor)
++            } else {
++                PillEventText(
++                    event,
++                    Modifier.widthIn(max = chipTextMaxWidth),
++                    overrideColor = contentColor,
++                )
++            }
++        }
++    }
++}
++
+ @Composable
+ private fun SatelliteCapsule(
+     secondaryEvent: IslandEvent,
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedIslandContent.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedIslandContent.kt
+index 5cceb17c638d..f017b73ccce5 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedIslandContent.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/ExpandedIslandContent.kt
+@@ -132,7 +132,7 @@ fun ExpandedIslandContent(
+             PaddingValues(
+                 start = SpaceLg,
+                 end = SpaceLg,
+-                top = SpaceXxs,
++                top = SpaceMd,
+                 bottom = ExpandedContentBottomScrollPadding,
+             ),
+     ) {
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+index cfb6cbc02e34..59ae3613ee18 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
++++ b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+@@ -638,7 +638,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+                 updatePercentText();
+             }
+             int paddingStart = getResources().getDimensionPixelSize(
+-                    R.dimen.battery_level_padding_start);
++                    R.dimen.status_bar_battery_percent_margin_start);
+             mBatteryPercentView.setPaddingRelative(isText ? 0 : paddingStart, 0, 0, 0);
+         } else {
+             // maybe draw inside
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+index 65de7009a581..d92bf4247263 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+@@ -282,7 +282,7 @@ fun UnifiedBattery(
+                                 }
+                         },
+             )
+-            Spacer(modifier = Modifier.width(2.dp))
++            Spacer(modifier = Modifier.width(5.dp))
+             BasicText(
+                 text = viewModel.batteryPercentText,
+                 style = legacyTextStyle.copy(
+@@ -675,7 +675,7 @@ fun BatteryPercentTextOnly(
+             }
+             val size = attribution.scaledSize(scale)
+ 
+-            Spacer(modifier = Modifier.width(1.dp))
++            Spacer(modifier = Modifier.width(5.dp))
+ 
+             BatteryAttribution(
+                 attr = attribution,
+-- 
+2.43.0
+

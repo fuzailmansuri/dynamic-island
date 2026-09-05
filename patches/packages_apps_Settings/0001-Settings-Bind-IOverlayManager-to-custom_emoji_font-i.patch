@@ -1,0 +1,166 @@
+From 6bbab80290bffb3ca04ce7b9ae2f01b220f89453 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 11:37:01 +0000
+Subject: [PATCH 1/2] Settings: Bind IOverlayManager to custom_emoji_font in
+ MiscSettings
+
+---
+ res/xml/yaap_settings_misc.xml                |  2 +-
+ .../android/settings/system/MiscSettings.java | 83 +++++++++++++++++++
+ 2 files changed, 84 insertions(+), 1 deletion(-)
+
+diff --git a/res/xml/yaap_settings_misc.xml b/res/xml/yaap_settings_misc.xml
+index 11960c8380f..22728b764c2 100644
+--- a/res/xml/yaap_settings_misc.xml
++++ b/res/xml/yaap_settings_misc.xml
+@@ -52,7 +52,7 @@
+         android:defaultValue="true" />
+ 
+     <!-- Emoji style switcher -->
+-    <com.yasp.settings.preferences.SystemSettingListPreference
++    <ListPreference
+         android:key="custom_emoji_font"
+         android:title="@string/emoji_switcher_title"
+         android:summary="%s"
+diff --git a/src/com/android/settings/system/MiscSettings.java b/src/com/android/settings/system/MiscSettings.java
+index cf63c824344..7d9cefa3374 100644
+--- a/src/com/android/settings/system/MiscSettings.java
++++ b/src/com/android/settings/system/MiscSettings.java
+@@ -20,10 +20,13 @@ import android.app.backup.SelectBackupTransportCallback;
+ import android.content.ComponentName;
+ import android.content.Context;
+ import android.content.SharedPreferences;
++import android.content.om.IOverlayManager;
++import android.content.om.OverlayInfo;
+ import android.os.Bundle;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
+ import android.os.UserHandle;
++import android.util.Log;
+ import android.widget.Toast;
+ 
+ import com.android.internal.logging.nano.MetricsProto;
+@@ -38,6 +41,7 @@ import androidx.preference.Preference.OnPreferenceChangeListener;
+ import androidx.preference.SwitchPreferenceCompat;
+ 
+ import java.util.Arrays;
++import java.util.Map;
+ 
+ @SearchIndexable
+ public class MiscSettings extends DashboardFragment implements
+@@ -47,12 +51,31 @@ public class MiscSettings extends DashboardFragment implements
+ 
+     public static final String MASK_ACCOUNT_KEY = "mask_google_account";
+     private static final String TRANSPORT_SELECTOR_KEY = "transport_selector";
++    public static final String CUSTOM_EMOJI_FONT_KEY = "custom_emoji_font";
+     private static final String SHARED_PREFS_NAME = "misc_settings_prefs";
+ 
++    private static final String[] EMOJI_PACKAGES = {
++        "com.android.theme.font.emoji.apple",
++        "com.android.theme.font.emoji.samsung",
++        "com.android.theme.font.emoji.twemoji",
++        "com.android.theme.font.emoji.joypixels",
++        "com.android.theme.font.emoji.fluent",
++    };
++
++    private static final Map<String, String> VALUE_TO_PACKAGE = Map.of(
++        "apple", "com.android.theme.font.emoji.apple",
++        "samsung", "com.android.theme.font.emoji.samsung",
++        "twemoji", "com.android.theme.font.emoji.twemoji",
++        "joypixels", "com.android.theme.font.emoji.joypixels",
++        "fluent", "com.android.theme.font.emoji.fluent"
++    );
++
+     private SharedPreferences mSharedPreferences;
+     private IBackupManager mBackupManager;
++    private IOverlayManager mOverlayManager;
+     private Toast mToast;
+     private ListPreference mTransportSelector;
++    private ListPreference mCustomEmojiFont;
+     private SwitchPreferenceCompat mMaskAccountToggle;
+ 
+     @Override
+@@ -61,6 +84,8 @@ public class MiscSettings extends DashboardFragment implements
+ 
+         mBackupManager = IBackupManager.Stub.asInterface(
+                 ServiceManager.getService(Context.BACKUP_SERVICE));
++        mOverlayManager = IOverlayManager.Stub.asInterface(
++                ServiceManager.getService(Context.OVERLAY_SERVICE));
+         mTransportSelector = findPreference(TRANSPORT_SELECTOR_KEY);
+         try {
+             final String current = mBackupManager.getCurrentTransportForUser(UserHandle.USER_SYSTEM);
+@@ -88,6 +113,40 @@ public class MiscSettings extends DashboardFragment implements
+         mMaskAccountToggle = findPreference(MASK_ACCOUNT_KEY);
+         mMaskAccountToggle.setChecked(getSharedPrefs().getBoolean(MASK_ACCOUNT_KEY, false));
+         mMaskAccountToggle.setOnPreferenceChangeListener(this);
++
++        mCustomEmojiFont = findPreference(CUSTOM_EMOJI_FONT_KEY);
++        if (mCustomEmojiFont != null) {
++            mCustomEmojiFont.setOnPreferenceChangeListener(this);
++            updateEmojiPreference();
++        }
++    }
++
++    @Override
++    public void onResume() {
++        super.onResume();
++        updateEmojiPreference();
++    }
++
++    private void updateEmojiPreference() {
++        if (mCustomEmojiFont == null || mOverlayManager == null) return;
++        String activeValue = "default";
++        int userId = UserHandle.myUserId();
++        for (Map.Entry<String, String> entry : VALUE_TO_PACKAGE.entrySet()) {
++            try {
++                OverlayInfo info = mOverlayManager.getOverlayInfo(entry.getValue(), userId);
++                if (info != null && info.isEnabled()) {
++                    activeValue = entry.getKey();
++                    break;
++                }
++            } catch (RemoteException e) {
++                Log.e(TAG, "Failed to get overlay info for " + entry.getValue(), e);
++            }
++        }
++        mCustomEmojiFont.setValue(activeValue);
++        int index = mCustomEmojiFont.findIndexOfValue(activeValue);
++        if (index >= 0) {
++            mCustomEmojiFont.setSummary(mCustomEmojiFont.getEntries()[index]);
++        }
+     }
+ 
+     @Override
+@@ -113,6 +172,30 @@ public class MiscSettings extends DashboardFragment implements
+             final Boolean value = (Boolean) objValue;
+             getSharedPrefs().edit().putBoolean(MASK_ACCOUNT_KEY, value).commit();
+             return true;
++        } else if (preference == mCustomEmojiFont) {
++            final String value = (String) objValue;
++            int userId = UserHandle.myUserId();
++            try {
++                if ("default".equals(value)) {
++                    for (String pkg : EMOJI_PACKAGES) {
++                        mOverlayManager.setEnabled(pkg, false, userId);
++                    }
++                } else {
++                    String targetPkg = VALUE_TO_PACKAGE.get(value);
++                    if (targetPkg != null) {
++                        mOverlayManager.setEnabledExclusiveInCategory(targetPkg, userId);
++                    }
++                }
++                int index = mCustomEmojiFont.findIndexOfValue(value);
++                if (index >= 0) {
++                    mCustomEmojiFont.setSummary(mCustomEmojiFont.getEntries()[index]);
++                }
++                return true;
++            } catch (RemoteException e) {
++                Log.e(TAG, "Failed to switch emoji overlay", e);
++                showToast(R.string.failure);
++                return false;
++            }
+         }
+         return false;
+     }
+-- 
+2.43.0
+

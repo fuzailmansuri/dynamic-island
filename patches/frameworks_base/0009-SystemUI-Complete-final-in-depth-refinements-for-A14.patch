@@ -1,0 +1,675 @@
+From 45829473ad04a38834487ca581e54faae763391c Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 16:15:41 +0000
+Subject: [PATCH 09/13] SystemUI: Complete final in-depth refinements for A14
+ status bar icons and Settings keys
+
+---
+ core/java/android/provider/Settings.java      |  9 +++
+ packages/SettingsLib/res/values/dimens.xml    |  5 +-
+ .../settingslib/graph/SignalDrawable.java     | 18 ++---
+ .../layout/status_bar_wifi_group_inner.xml    |  3 +-
+ .../status-bar-dimens.xml                     | 46 +++++------
+ .../status-bar-dimens.xml                     | 47 +++++------
+ .../ui/compose/AxDynamicBarChip.kt            | 24 +++---
+ .../ui/compose/AxDynamicBarKeyguardChip.kt    |  8 +-
+ .../ui/compose/AxDynamicBarNowBar.kt          | 10 ++-
+ .../systemui/battery/BatteryMeterView.java    |  3 +-
+ .../battery/BatteryMeterViewController.java   |  5 +-
+ .../systemui/battery/ThemedBatteryBody.kt     |  2 +
+ .../statusbar/connectivity/WifiIcons.java     |  2 -
+ .../battery/ui/composable/UnifiedBattery.kt   | 80 ++++++++++++++-----
+ 14 files changed, 155 insertions(+), 107 deletions(-)
+
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index dc62d70ab09f..2c67d3a8f370 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -7322,6 +7322,15 @@ public final class Settings {
+         @Readable
+         public static final String STATUS_BAR_BATTERY_STYLE = "status_bar_battery_style";
+ 
++        /**
++         * Whether to use legacy (Android 14) status bar icons.
++         * 0 = modern icons
++         * 1 = legacy icons (default)
++         * @hide
++         */
++        @Readable
++        public static final String STATUS_BAR_LEGACY_ICONS = "status_bar_legacy_icons";
++
+         /**
+          * Whether to draw battery percent inside the icon
+          * @hide
+diff --git a/packages/SettingsLib/res/values/dimens.xml b/packages/SettingsLib/res/values/dimens.xml
+index 5e7138250b64..482fce051c87 100644
+--- a/packages/SettingsLib/res/values/dimens.xml
++++ b/packages/SettingsLib/res/values/dimens.xml
+@@ -42,8 +42,9 @@
+     <dimen name="usage_graph_dot_size">.75dp</dimen>
+     <dimen name="usage_graph_dot_interval">7dp</dimen>
+ 
+-    <dimen name="battery_height">14.5dp</dimen>
+-    <dimen name="battery_width">9.5dp</dimen>
++    <!-- A14 legacy portrait battery: 17.6dp tall, 12x20 canvas => 10.56dp wide -->
++    <dimen name="battery_height">17.6dp</dimen>
++    <dimen name="battery_width">10.56dp</dimen>
+     <dimen name="battery_powersave_outline_thickness">1dp</dimen>
+ 
+     <dimen name="bt_battery_padding">2dp</dimen>
+diff --git a/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java b/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
+index 4ebf9224650c..6a7ba0170fdc 100644
+--- a/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
++++ b/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
+@@ -14,8 +14,6 @@
+ 
+ package com.android.settingslib.graph;
+ 
+-import static com.android.settingslib.flags.Flags.newStatusBarIcons;
+-
+ import android.animation.ArgbEvaluator;
+ import android.annotation.IntRange;
+ import android.content.Context;
+@@ -128,20 +126,16 @@ public class SignalDrawable extends DrawableWrapper {
+ 
+     @Override
+     public int getIntrinsicWidth() {
+-        if (newStatusBarIcons()) {
+-            return super.getIntrinsicWidth();
+-        } else {
+-            return mIntrinsicSize;
+-        }
++        // Authentic A14 triangle (ic_signal_cellular) is always 17.6dp.
++        // Legacy reversion is default-on (status_bar_legacy_icons=1), so always
++        // report the legacy intrinsic size regardless of newStatusBarIcons flag.
++        return mIntrinsicSize;
+     }
+ 
+     @Override
+     public int getIntrinsicHeight() {
+-        if (newStatusBarIcons()) {
+-            return super.getIntrinsicHeight();
+-        } else {
+-            return mIntrinsicSize;
+-        }
++        // See getIntrinsicWidth: always 17.6dp for the legacy triangle.
++        return mIntrinsicSize;
+     }
+ 
+     private void updateAnimation() {
+diff --git a/packages/SystemUI/res/layout/status_bar_wifi_group_inner.xml b/packages/SystemUI/res/layout/status_bar_wifi_group_inner.xml
+index e8b8922a138d..ceec0d6e4bc7 100644
+--- a/packages/SystemUI/res/layout/status_bar_wifi_group_inner.xml
++++ b/packages/SystemUI/res/layout/status_bar_wifi_group_inner.xml
+@@ -24,7 +24,8 @@
+         android:layout_width="wrap_content"
+         android:layout_height="match_parent"
+         android:gravity="center_vertical"
+-        android:layout_marginStart="2.5sp"
++        android:layout_marginStart="@dimen/status_bar_wifi_signal_horizontal_margin"
++        android:layout_marginEnd="@dimen/status_bar_wifi_signal_horizontal_margin"
+     >
+         <FrameLayout
+                 android:id="@+id/inout_container"
+diff --git a/packages/SystemUI/res/values-sw1500dp-110dpi/status-bar-dimens.xml b/packages/SystemUI/res/values-sw1500dp-110dpi/status-bar-dimens.xml
+index c7cb085c7a29..46be9c91b2e7 100644
+--- a/packages/SystemUI/res/values-sw1500dp-110dpi/status-bar-dimens.xml
++++ b/packages/SystemUI/res/values-sw1500dp-110dpi/status-bar-dimens.xml
+@@ -35,16 +35,16 @@
+     <!-- Default horizontal drawable padding for status bar icons. -->
+     <dimen name="status_bar_horizontal_padding">3.75sp</dimen>
+ 
+-    <!-- Height of the battery icon in the status bar. -->
+-    <dimen name="status_bar_battery_icon_height">19.5sp</dimen>
++    <!-- Height of the battery icon in the status bar. 1.5x of 17.6dp baseline. -->
++    <dimen name="status_bar_battery_icon_height">26.4sp</dimen>
+ 
+     <!-- Width of the battery icon in the status bar. The battery drawable assumes a 12x20 canvas,
+-    so the width of the icon should be 13.0sp * (12.0 / 20.0) -->
+-    <dimen name="status_bar_battery_icon_width">11.7sp</dimen>
++    so the width of the icon should be 26.4sp * (12.0 / 20.0) = 15.84sp -->
++    <dimen name="status_bar_battery_icon_width">15.84sp</dimen>
+ 
+-    <!-- Original canvas is 24x14. These dimens reflect that ratio, with 12sp height instead  -->
+-    <dimen name="status_bar_battery_unified_icon_width">30.9sp</dimen>
+-    <dimen name="status_bar_battery_unified_icon_height">18sp</dimen>
++    <!-- Legacy portrait battery, 1.5x of 10.56dp x 17.6dp baseline. -->
++    <dimen name="status_bar_battery_unified_icon_width">15.84sp</dimen>
++    <dimen name="status_bar_battery_unified_icon_height">26.4sp</dimen>
+ 
+     <!-- The battery icon is 13sp tall, but the other system icons are 15sp tall (see
+          @*android:dimen/status_bar_system_icon_size) with some top and bottom padding embedded in
+@@ -67,25 +67,23 @@
+     <!-- End padding for left-aligned status bar clock -->
+     <dimen name="status_bar_left_clock_end_padding">3sp</dimen>
+ 
+-    <!-- Margins before/after the new wifi icon -->
+-    <dimen name="status_bar_wifi_signal_horizontal_margin">4.5sp</dimen>
++    <!-- Margins before/after the new wifi icon. 1.5x of 5dp baseline. -->
++    <dimen name="status_bar_wifi_signal_horizontal_margin">7.5sp</dimen>
+ 
+-    <!-- Spacing after the wifi signals that is present if there are any icons following it. -->
+-    <dimen name="status_bar_wifi_signal_spacer_width">3.75sp</dimen>
++    <!-- Spacing after the wifi signals. 1.5x of 4dp baseline. -->
++    <dimen name="status_bar_wifi_signal_spacer_width">6sp</dimen>
+ 
+     <!-- Size of the view displaying the wifi inout icon in the status bar. -->
+     <dimen name="status_bar_wifi_inout_container_size">25.5sp</dimen>
+-    <!-- Size of the view displaying the wifi signal icon in the status bar. This value should
+-        match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_wifi_signal_size">22.5sp</dimen>
+-    <dimen name="status_bar_wifi_signal_height_updated">18sp</dimen>
++    <!-- A14 legacy wifi icon, 1.5x of 17.6dp baseline. -->
++    <dimen name="status_bar_wifi_signal_size">26.4sp</dimen>
++    <dimen name="status_bar_wifi_signal_height_updated">26.4sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile inout icon in the status bar. -->
+     <dimen name="status_bar_mobile_inout_container_size">25.5sp</dimen>
+-    <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+-        match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_mobile_signal_size">22.5sp</dimen>
+-    <dimen name="status_bar_mobile_signal_size_updated">18sp</dimen>
++    <!-- A14 legacy mobile icon, 1.5x of 17.6dp baseline. -->
++    <dimen name="status_bar_mobile_signal_size">26.4sp</dimen>
++    <dimen name="status_bar_mobile_signal_size_updated">26.4sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata
+@@ -100,9 +98,9 @@
+         Note: can be removed once new_status_bar_icons is rolled out -->
+     <dimen name="status_bar_mobile_container_corner_radius">13.5sp</dimen>
+ 
+-    <!-- Start-side margin for the mobile container (before the RAT or triangle) -->
+-    <dimen name="status_bar_mobile_container_margin_start">4.5sp</dimen>
+-    <dimen name="status_bar_mobile_container_margin_end">4.5sp</dimen>
++    <!-- Start-side margin for the mobile container, 1.5x of 5dp baseline. -->
++    <dimen name="status_bar_mobile_container_margin_start">7.5sp</dimen>
++    <dimen name="status_bar_mobile_container_margin_end">7.5sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata -->
+@@ -126,8 +124,8 @@
+     <!-- Spacing before the airplane mode icon if there are any icons preceding it. -->
+     <dimen name="status_bar_airplane_spacer_width">6sp</dimen>
+ 
+-    <!-- Spacing between system icons. -->
+-    <dimen name="status_bar_system_icon_spacing">0sp</dimen>
++    <!-- Spacing between system icons. 1.5x of 2dp baseline. -->
++    <dimen name="status_bar_system_icon_spacing">3sp</dimen>
+ 
+     <!-- The amount to scale each of the status bar icons by. A value of 1 means no scaling. -->
+     <item name="status_bar_icon_scale_factor" format="float" type="dimen">1.5</item>
+diff --git a/packages/SystemUI/res/values-sw1900dp-90dpi/status-bar-dimens.xml b/packages/SystemUI/res/values-sw1900dp-90dpi/status-bar-dimens.xml
+index 72f6673bebe6..cf33b14eae5b 100644
+--- a/packages/SystemUI/res/values-sw1900dp-90dpi/status-bar-dimens.xml
++++ b/packages/SystemUI/res/values-sw1900dp-90dpi/status-bar-dimens.xml
+@@ -35,16 +35,15 @@
+     <!-- Default horizontal drawable padding for status bar icons. -->
+     <dimen name="status_bar_horizontal_padding">5sp</dimen>
+ 
+-    <!-- Height of the battery icon in the status bar. -->
+-    <dimen name="status_bar_battery_icon_height">26.0sp</dimen>
++    <!-- Height of the battery icon in the status bar. 2x of 17.6dp baseline. -->
++    <dimen name="status_bar_battery_icon_height">35.2sp</dimen>
+ 
+-    <!-- Width of the battery icon in the status bar. The battery drawable assumes a 12x20 canvas,
+-    so the width of the icon should be 13.0sp * (12.0 / 20.0) -->
+-    <dimen name="status_bar_battery_icon_width">15.6sp</dimen>
++    <!-- Width of the battery icon in the status bar. 35.2sp * (12.0 / 20.0) = 21.12sp -->
++    <dimen name="status_bar_battery_icon_width">21.12sp</dimen>
+ 
+-    <!-- Original canvas is 24x14. These dimens reflect that ratio, with 12sp height instead  -->
+-    <dimen name="status_bar_battery_unified_icon_width">41.2sp</dimen>
+-    <dimen name="status_bar_battery_unified_icon_height">24sp</dimen>
++    <!-- Legacy portrait battery, 2x of 10.56dp x 17.6dp baseline. -->
++    <dimen name="status_bar_battery_unified_icon_width">21.12sp</dimen>
++    <dimen name="status_bar_battery_unified_icon_height">35.2sp</dimen>
+ 
+     <!-- The battery icon is 13sp tall, but the other system icons are 15sp tall (see
+          @*android:dimen/status_bar_system_icon_size) with some top and bottom padding embedded in
+@@ -67,25 +66,23 @@
+     <!-- End padding for left-aligned status bar clock -->
+     <dimen name="status_bar_left_clock_end_padding">4sp</dimen>
+ 
+-    <!-- Margins before/after the new wifi icon -->
+-    <dimen name="status_bar_wifi_signal_horizontal_margin">6sp</dimen>
++    <!-- Margins before/after the new wifi icon. 2x of 5dp baseline. -->
++    <dimen name="status_bar_wifi_signal_horizontal_margin">10sp</dimen>
+ 
+-    <!-- Spacing after the wifi signals that is present if there are any icons following it. -->
+-    <dimen name="status_bar_wifi_signal_spacer_width">5sp</dimen>
++    <!-- Spacing after the wifi signals. 2x of 4dp baseline. -->
++    <dimen name="status_bar_wifi_signal_spacer_width">8sp</dimen>
+ 
+     <!-- Size of the view displaying the wifi inout icon in the status bar. -->
+     <dimen name="status_bar_wifi_inout_container_size">34sp</dimen>
+-    <!-- Size of the view displaying the wifi signal icon in the status bar. This value should
+-        match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_wifi_signal_size">30sp</dimen>
+-    <dimen name="status_bar_wifi_signal_height_updated">24sp</dimen>
++    <!-- A14 legacy wifi icon, 2x of 17.6dp baseline. -->
++    <dimen name="status_bar_wifi_signal_size">35.2sp</dimen>
++    <dimen name="status_bar_wifi_signal_height_updated">35.2sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile inout icon in the status bar. -->
+     <dimen name="status_bar_mobile_inout_container_size">34sp</dimen>
+-    <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+-        match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_mobile_signal_size">30sp</dimen>
+-    <dimen name="status_bar_mobile_signal_size_updated">24sp</dimen>
++    <!-- A14 legacy mobile icon, 2x of 17.6dp baseline. -->
++    <dimen name="status_bar_mobile_signal_size">35.2sp</dimen>
++    <dimen name="status_bar_mobile_signal_size_updated">35.2sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata
+@@ -100,9 +97,9 @@
+         Note: can be removed once new_status_bar_icons is rolled out -->
+     <dimen name="status_bar_mobile_container_corner_radius">18sp</dimen>
+ 
+-    <!-- Start-side margin for the mobile container (before the RAT or triangle) -->
+-    <dimen name="status_bar_mobile_container_margin_start">6sp</dimen>
+-    <dimen name="status_bar_mobile_container_margin_end">6sp</dimen>
++    <!-- Start-side margin for the mobile container, 2x of 5dp baseline. -->
++    <dimen name="status_bar_mobile_container_margin_start">10sp</dimen>
++    <dimen name="status_bar_mobile_container_margin_end">10sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata -->
+@@ -126,8 +123,8 @@
+     <!-- Spacing before the airplane mode icon if there are any icons preceding it. -->
+     <dimen name="status_bar_airplane_spacer_width">8sp</dimen>
+ 
+-    <!-- Spacing between system icons. -->
+-    <dimen name="status_bar_system_icon_spacing">0sp</dimen>
++    <!-- Spacing between system icons. 2x of 2dp baseline. -->
++    <dimen name="status_bar_system_icon_spacing">4sp</dimen>
+ 
+     <!-- The amount to scale each of the status bar icons by. A value of 1 means no scaling. -->
+     <item name="status_bar_icon_scale_factor" format="float" type="dimen">2.0</item>
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+index 2c6da0a91362..2abe132a3a9f 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarChip.kt
+@@ -88,6 +88,8 @@ import com.android.systemui.axdynamicbar.shared.AlphaIconBg
+ import com.android.systemui.axdynamicbar.shared.AlphaSecondary
+ import com.android.systemui.axdynamicbar.shared.AlphaTertiary
+ import com.android.systemui.axdynamicbar.shared.AxDynamicBarTheme
++import com.android.systemui.axdynamicbar.shared.CardBg
++import com.android.systemui.axdynamicbar.shared.OnCardText
+ import com.android.systemui.axdynamicbar.shared.PillPrimary
+ import com.android.systemui.axdynamicbar.shared.ShapeXl
+ import com.android.systemui.axdynamicbar.shared.ShapeXs
+@@ -97,7 +99,6 @@ import com.android.systemui.axdynamicbar.shared.SpaceSm
+ import com.android.systemui.axdynamicbar.shared.SpaceXs
+ import com.android.systemui.axdynamicbar.shared.TsBadge
+ import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
+-import com.android.systemui.axdynamicbar.shared.chipContentColorOn
+ import com.android.systemui.axdynamicbar.shared.chipProgressFor
+ import com.android.systemui.axdynamicbar.shared.toScaledBitmap
+ import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipState
+@@ -129,6 +130,7 @@ private fun AxDynamicBarChipContent(
+ ) {
+     val state by viewModel.chipState.collectAsStateWithLifecycle()
+     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
++    val isEnabled by viewModel.isEnabled.collectAsStateWithLifecycle()
+     val keyguardCarrier by viewModel.keyguardCarrierText.collectAsStateWithLifecycle()
+     
+     val carrierName = if (isOnKeyguard && ignoreKeyguard) keyguardCarrier.takeIf { it.isNotBlank() } else null
+@@ -153,7 +155,7 @@ private fun AxDynamicBarChipContent(
+     val motionScheme = MaterialTheme.motionScheme
+ 
+     AnimatedVisibility(
+-        visible = state != null && (ignoreKeyguard || !isOnKeyguard),
++        visible = isEnabled && state != null && (ignoreKeyguard || !isOnKeyguard),
+         enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
+         exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
+         modifier = modifier
+@@ -234,7 +236,7 @@ private fun AxDynamicBarChipContent(
+                 label = "accent",
+             )
+             val contentColor by animateColorAsState(
+-                chipContentColorOn(rawAccent),
++                OnCardText,
+                 MaterialTheme.motionScheme.fastEffectsSpec(),
+                 label = "content",
+             )
+@@ -284,9 +286,11 @@ private fun AxDynamicBarChipContent(
+                 Modifier
+             }
+ 
+-            val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceAtLeast(16f).dp
++            val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceIn(16f, 32f).dp
+             val chipMinWidthDp = if (cutoutWidthSetting != 0) (48f + cutoutWidthSetting).coerceAtLeast(24f).dp else Dp.Unspecified
+-            val chipMaxWidthDp = (140f + cutoutWidthSetting).coerceAtLeast(60f).dp
++            val chipMaxWidthDp = (120f + cutoutWidthSetting).coerceIn(60f, 140f).dp
++            val safeOffsetX = cutoutOffsetXSetting.coerceIn(-8, 8)
++            val safeOffsetY = cutoutOffsetYSetting.coerceIn(-8, 8)
+ 
+             Box(
+                 modifier = Modifier.fillMaxHeight(),
+@@ -314,11 +318,11 @@ private fun AxDynamicBarChipContent(
+                             modifier =
+                                 Modifier.height(chipHeightDp)
+                                     .widthIn(min = chipMinWidthDp, max = chipMaxWidthDp)
+-                                    .offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
++                                    .offset(x = safeOffsetX.dp, y = safeOffsetY.dp)
+                                     .then(chipVisibilityModifier)
+                                     .then(privacyGlowModifier)
+                                     .clip(ChipShape)
+-                                    .background(accent)
++                                    .background(CardBg)
+                                     .then(
+                                         if (progress != null) {
+                                             val trackColor = lerp(accent, contentColor, 0.2f)
+@@ -395,7 +399,7 @@ private fun AxDynamicBarChipContent(
+                                     secondaryEvent = secondaryEvent,
+                                     chipHeightDp = chipHeightDp,
+                                     privacyGlowModifier = privacyGlowModifier,
+-                                    modifier = Modifier.offset(x = cutoutOffsetXSetting.dp, y = cutoutOffsetYSetting.dp)
++                                    modifier = Modifier.offset(x = safeOffsetX.dp, y = safeOffsetY.dp)
+                                         .pointerInput(secondaryEvent) {
+                                             awaitEachGesture {
+                                                 val down = awaitFirstDown(pass = PointerEventPass.Initial)
+@@ -663,7 +667,7 @@ private fun SatelliteCapsule(
+         label = "sec_accent",
+     )
+     val secContentColor by animateColorAsState(
+-        chipContentColorOn(secAccent),
++        OnCardText,
+         MaterialTheme.motionScheme.fastEffectsSpec(),
+         label = "sec_content",
+     )
+@@ -674,7 +678,7 @@ private fun SatelliteCapsule(
+             .widthIn(min = chipHeightDp)
+             .then(privacyGlowModifier)
+             .clip(ChipShape)
+-            .background(animatedSecAccent)
++            .background(CardBg)
+             .padding(horizontal = 6.dp),
+         contentAlignment = Alignment.Center,
+     ) {
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarKeyguardChip.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarKeyguardChip.kt
+index b87c91548f0d..ced5688645ad 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarKeyguardChip.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarKeyguardChip.kt
+@@ -245,7 +245,7 @@ private fun AxDynamicBarKeyguardChipContent(
+                         label = "kg_accent",
+                     )
+                     val contentColor by animateColorAsState(
+-                        chipContentColorOn(rawAccent),
++                        OnCardText,
+                         MaterialTheme.motionScheme.fastEffectsSpec(),
+                         label = "kg_content",
+                     )
+@@ -329,7 +329,7 @@ private fun KeyguardChipBody(
+                 .height(dynamicHeight)
+                 .widthIn(min = 48.dp, max = 260.dp)
+                 .clip(ChipShape)
+-                .background(accent)
++                .background(CardBg)
+                 .animateContentSize(motionScheme.defaultSpatialSpec())
+                 .then(
+                     if (progress != null) {
+@@ -592,7 +592,7 @@ private fun KeyguardBatteryChip(
+         info.isPowerSave -> BatteryPowerSaveColor
+         else -> BatteryNeutralColor
+     }
+-    val contentColor = chipContentColorOn(accent)
++    val contentColor = OnCardText
+ 
+     val parts = rememberChargingParts(batteryString)
+     val isMultiLine = info.isCharging && parts.size >= 2
+@@ -603,7 +603,7 @@ private fun KeyguardBatteryChip(
+             modifier = modifier
+                 .height(dynamicHeight)
+                 .clip(ChipShape)
+-                .background(accent)
++                .background(CardBg)
+                 .widthIn(min = 48.dp, max = 260.dp)
+                 .padding(horizontal = SpaceMd)
+                 .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarNowBar.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarNowBar.kt
+index 0acff1cce310..e521748cd335 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarNowBar.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/ui/compose/AxDynamicBarNowBar.kt
+@@ -61,13 +61,14 @@ import com.android.systemui.axdynamicbar.model.IslandEvent
+ import com.android.systemui.axdynamicbar.shared.AlphaHint
+ import com.android.systemui.axdynamicbar.shared.AlphaTrack
+ import com.android.systemui.axdynamicbar.shared.AxDynamicBarTheme
++import com.android.systemui.axdynamicbar.shared.CardBg
++import com.android.systemui.axdynamicbar.shared.OnCardText
+ import com.android.systemui.axdynamicbar.shared.PillPrimary
+ import com.android.systemui.axdynamicbar.shared.ShapeXl
+ import com.android.systemui.axdynamicbar.shared.ShapeXs
+ import com.android.systemui.axdynamicbar.shared.SpaceSm
+ import com.android.systemui.axdynamicbar.shared.SpaceXs
+ import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
+-import com.android.systemui.axdynamicbar.shared.chipContentColorOn
+ import com.android.systemui.axdynamicbar.shared.chipProgressFor
+ import com.android.systemui.axdynamicbar.shared.toScaledBitmap
+ import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipState
+@@ -94,6 +95,7 @@ private fun AxDynamicBarNowBarContent(
+     state: AxDynamicBarChipState?,
+     viewModel: AxDynamicBarChipViewModel,
+ ) {
++    val isEnabled by androidx.lifecycle.compose.collectAsStateWithLifecycle(viewModel.isEnabled)
+     val touchSlop = LocalViewConfiguration.current.touchSlop
+     val motionScheme = MaterialTheme.motionScheme
+     val anchorView = LocalView.current
+@@ -101,7 +103,7 @@ private fun AxDynamicBarNowBarContent(
+     val boundsExpandable = rememberBoundsExpandable(anchorBounds)
+ 
+     AnimatedVisibility(
+-        visible = state != null,
++        visible = isEnabled && state != null,
+         enter = slideInVertically(motionScheme.defaultSpatialSpec()) { -it } + fadeIn(motionScheme.defaultEffectsSpec()),
+         exit = slideOutVertically(motionScheme.fastSpatialSpec()) { -it } + fadeOut(motionScheme.fastEffectsSpec()),
+     ) {
+@@ -115,7 +117,7 @@ private fun AxDynamicBarNowBarContent(
+                 label = "accent",
+             )
+             val contentColor by animateColorAsState(
+-                chipContentColorOn(rawAccent),
++                OnCardText,
+                 MaterialTheme.motionScheme.fastEffectsSpec(),
+                 label = "content",
+             )
+@@ -180,7 +182,7 @@ private fun AxDynamicBarNowBarContent(
+                         .onGloballyPositioned { anchorBounds = it.screenBounds(anchorView) }
+                         .shadow(6.dp, NowBarShape)
+                         .clip(NowBarShape)
+-                        .background(accent)
++                        .background(CardBg)
+                         .then(
+                             if (progress != null) {
+                                 Modifier.drawWithContent {
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+index 36fc3bde49d8..cfb6cbc02e34 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
++++ b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+@@ -20,6 +20,7 @@ import static android.provider.Settings.System.SHOW_BATTERY_PERCENT_CHARGING;
+ import static android.provider.Settings.System.QS_SHOW_BATTERY_ESTIMATE;
+ import static android.provider.Settings.System.STATUS_BAR_BATTERY_STYLE;
+ import static android.provider.Settings.System.SHOW_BATTERY_PERCENT_INSIDE;
++import static android.provider.Settings.System.STATUS_BAR_LEGACY_ICONS;
+ 
+ import static com.android.systemui.DejankUtils.whitelistIpcs;
+ 
+@@ -136,7 +137,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     private boolean isLegacyIconsEnabled() {
+         return Settings.System.getIntForUser(
+                 getContext().getContentResolver(),
+-                "status_bar_legacy_icons",
++                STATUS_BAR_LEGACY_ICONS,
+                 1,
+                 UserHandle.USER_CURRENT) == 1;
+     }
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
+index 6d0bff21fbef..1d889da1b5a1 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
++++ b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
+@@ -21,6 +21,7 @@ import static android.provider.Settings.System.SHOW_BATTERY_PERCENT_CHARGING;
+ import static android.provider.Settings.System.QS_SHOW_BATTERY_ESTIMATE;
+ import static android.provider.Settings.System.STATUS_BAR_BATTERY_STYLE;
+ import static android.provider.Settings.System.SHOW_BATTERY_PERCENT_INSIDE;
++import static android.provider.Settings.System.STATUS_BAR_LEGACY_ICONS;
+ 
+ import android.content.ContentResolver;
+ import android.content.Context;
+@@ -252,7 +253,7 @@ public class BatteryMeterViewController extends ViewController<BatteryMeterView>
+                 false,
+                 mSettingObserver);
+         mContentResolver.registerContentObserver(
+-                Settings.System.getUriFor("status_bar_legacy_icons"),
++                Settings.System.getUriFor(STATUS_BAR_LEGACY_ICONS),
+                 false,
+                 mSettingObserver);
+     }
+@@ -279,7 +280,7 @@ public class BatteryMeterViewController extends ViewController<BatteryMeterView>
+                     mView.updatePercentView();
+                     break;
+                 case STATUS_BAR_BATTERY_STYLE:
+-                case "status_bar_legacy_icons":
++                case STATUS_BAR_LEGACY_ICONS:
+                     mView.updateBatteryStyle();
+                     mView.postInvalidate();
+                     break;
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/ThemedBatteryBody.kt b/packages/SystemUI/src/com/android/systemui/battery/ThemedBatteryBody.kt
+index 92e0605f3a4b..08630d0e0a80 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/ThemedBatteryBody.kt
++++ b/packages/SystemUI/src/com/android/systemui/battery/ThemedBatteryBody.kt
+@@ -60,7 +60,9 @@ fun ThemedBatteryBody(
+     }
+ 
+     // Apply state to the drawable every recomposition.
++    // Must call setColors or fill stays MAGENTA sentinel (purple bug).
+     drawable.apply {
++        setColors(frameColor, frameColor, frameColor)
+         setBatteryLevel(batteryLevel)
+         charging = pluggedIn
+         powerSaveEnabled = powerSave
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java b/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
+index f2c70ca858a7..026d82ddf25a 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
+@@ -16,8 +16,6 @@
+ 
+ package com.android.systemui.statusbar.connectivity;
+ 
+-import static com.android.settingslib.flags.Flags.newStatusBarIcons;
+-
+ import com.android.settingslib.AccessibilityContentDescriptions;
+ import com.android.settingslib.R;
+ import com.android.settingslib.SignalIcon.IconGroup;
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+index aa2eb9d903e6..52181fed5bb0 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+@@ -212,19 +212,45 @@ fun UnifiedBattery(
+     }
+ 
+     val context = LocalContext.current
++    val density = LocalDensity.current
++    // Legacy icon dimensions from resources (17.6dp x 10.56dp on baseline).
++    val legacyBatteryHeightDp =
++        with(density) {
++            context.resources
++                .getDimensionPixelSize(
++                    com.android.systemui.res.R.dimen.status_bar_battery_icon_height
++                )
++                .toDp()
++        }
++    val legacyBatteryWidthDp =
++        with(density) {
++            context.resources
++                .getDimensionPixelSize(
++                    com.android.systemui.res.R.dimen.status_bar_battery_icon_width
++                )
++                .toDp()
++        }
+     var isLegacyIcons by remember(context) {
+         mutableStateOf(
+-            Settings.System.getInt(context.contentResolver, "status_bar_legacy_icons", 1) == 1
++            Settings.System.getInt(
++                context.contentResolver,
++                Settings.System.STATUS_BAR_LEGACY_ICONS,
++                1
++            ) == 1
+         )
+     }
+ 
+     DisposableEffect(context) {
+         val resolver = context.contentResolver
+-        val uri = Settings.System.getUriFor("status_bar_legacy_icons")
++        val uri = Settings.System.getUriFor(Settings.System.STATUS_BAR_LEGACY_ICONS)
+         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+             override fun onChange(selfChange: Boolean) {
+                 isLegacyIcons =
+-                    Settings.System.getInt(resolver, "status_bar_legacy_icons", 1) == 1
++                    Settings.System.getInt(
++                        resolver,
++                        Settings.System.STATUS_BAR_LEGACY_ICONS,
++                        1
++                    ) == 1
+             }
+         }
+         resolver.registerContentObserver(uri, false, observer, UserHandle.USER_ALL)
+@@ -234,23 +260,37 @@ fun UnifiedBattery(
+     }
+ 
+     if (isLegacyIcons) {
+-        ThemedBatteryBody(
+-            batteryLevel = viewModel.level ?: 0,
+-            pluggedIn = viewModel.isCharging,
+-            powerSave = viewModel.attribution == BatteryGlyph.Plus,
+-            frameColor = if (isDarkProvider().isDarkTheme(bounds)) android.graphics.Color.WHITE else android.graphics.Color.BLACK,
+-            modifier =
+-                modifier
+-                    .height(17.6.dp)
+-                    .width(10.56.dp)
+-                    .sysuiResTag(BatteryViewModel.TEST_TAG)
+-                    .onLayoutRectChanged { relativeLayoutBounds ->
+-                        bounds =
+-                            with(relativeLayoutBounds.boundsInScreen) {
+-                                Rect(left, top, right, bottom)
+-                            }
+-                    },
+-        )
++        val legacyFrameColor = if (isDarkProvider().isDarkTheme(bounds)) android.graphics.Color.WHITE else android.graphics.Color.BLACK
++        val legacyTextStyle = BatteryViewModel.getStatusBarBatteryTextStyle(context)
++        Row(
++            modifier = modifier.sysuiResTag(BatteryViewModel.TEST_TAG),
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            ThemedBatteryBody(
++                batteryLevel = viewModel.level ?: 0,
++                pluggedIn = viewModel.isCharging,
++                powerSave = viewModel.attribution == BatteryGlyph.Plus,
++                frameColor = legacyFrameColor,
++                modifier =
++                    Modifier
++                        .height(legacyBatteryHeightDp)
++                        .width(legacyBatteryWidthDp)
++                        .onLayoutRectChanged { relativeLayoutBounds ->
++                            bounds =
++                                with(relativeLayoutBounds.boundsInScreen) {
++                                    Rect(left, top, right, bottom)
++                                }
++                        },
++            )
++            Spacer(modifier = Modifier.width(2.dp))
++            BasicText(
++                text = viewModel.batteryPercentText,
++                style = legacyTextStyle.copy(
++                    color = Color(legacyFrameColor)
++                ),
++                maxLines = 1,
++            )
++        }
+         return
+     }
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,917 @@
+From 608664e961bbdf4ecb51ecb15a13c9b2775a38ac Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 11:23:42 +0000
+Subject: [PATCH 02/13] SystemUI: Complete in-depth A14 status bar icons and
+ Dynamic Island pipeline fixes
+
+---
+ packages/SettingsLib/res/values/dimens.xml    |   2 +-
+ .../settingslib/graph/SignalDrawable.java     |  17 +-
+ packages/SystemUI/res/values/dimens.xml       |   4 +-
+ .../domain/AxDynamicBarSettings.kt            | 219 +++++++++++-------
+ .../systemui/battery/BatteryMeterView.java    | 129 +++++++----
+ .../battery/BatteryMeterViewController.java   |   6 +
+ .../statusbar/connectivity/WifiIcons.java     |  68 ++----
+ .../battery/ui/composable/UnifiedBattery.kt   |  50 ++++
+ .../ui/view/ModernStatusBarMobileView.kt      |   6 +-
+ .../wifi/ui/view/ModernStatusBarWifiView.kt   |  39 ++--
+ 10 files changed, 318 insertions(+), 222 deletions(-)
+
+diff --git a/packages/SettingsLib/res/values/dimens.xml b/packages/SettingsLib/res/values/dimens.xml
+index a7252c33ed00..5e7138250b64 100644
+--- a/packages/SettingsLib/res/values/dimens.xml
++++ b/packages/SettingsLib/res/values/dimens.xml
+@@ -66,7 +66,7 @@
+     <dimen name="zen_mode_condition_detail_item_interline_spacing">4dp</dimen>
+ 
+     <!-- SignalDrawable -->
+-    <dimen name="signal_icon_size">15dp</dimen>
++    <dimen name="signal_icon_size">17.6dp</dimen>
+     <!-- The size of the roaming icon in the top-left corner of the signal icon. -->
+     <dimen name="signal_icon_size_roaming">8dp</dimen>
+ 
+diff --git a/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java b/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
+index 14fa9ec02575..4ebf9224650c 100644
+--- a/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
++++ b/packages/SettingsLib/src/com/android/settingslib/graph/SignalDrawable.java
+@@ -175,17 +175,10 @@ public class SignalDrawable extends DrawableWrapper {
+ 
+     private int unpackLevel(int packedState) {
+         int numBins = (packedState & NUM_LEVEL_MASK) >> NUM_LEVEL_SHIFT;
+-        int cutOutOffset = 0;
+         int levelOffset = numBins == (CellSignalStrength.getNumSignalStrengthLevels() + 1) ? 10 : 0;
+         int level = (packedState & LEVEL_MASK);
+ 
+-        if (newStatusBarIcons()) {
+-            if (isInState(STATE_CUT)) {
+-                cutOutOffset = 20;
+-            }
+-        }
+-
+-        return level + levelOffset + cutOutOffset;
++        return level + levelOffset;
+     }
+ 
+     public void setDarkIntensity(float darkIntensity) {
+@@ -250,7 +243,7 @@ public class SignalDrawable extends DrawableWrapper {
+             drawDotAndPadding(x - dotSpacing * 2, y, dotPadding, dotSize, 0);
+             canvas.drawPath(mCutoutPath, mTransparentPaint);
+             canvas.drawPath(mForegroundPath, mForegroundPaint);
+-        } else if (!newStatusBarIcons() && isInState(STATE_CUT)) {
++        } else if (isInState(STATE_CUT)) {
+             float cutX = (mCutoutWidthFraction * width / VIEWPORT);
+             float cutY = (mCutoutHeightFraction * height / VIEWPORT);
+             mCutoutPath.moveTo(width, height);
+@@ -349,10 +342,6 @@ public class SignalDrawable extends DrawableWrapper {
+     }
+ 
+     private static int getIconRes() {
+-        if (newStatusBarIcons()) {
+-            return R.drawable.ic_mobile_level_list;
+-        } else {
+-            return com.android.internal.R.drawable.ic_signal_cellular;
+-        }
++        return com.android.internal.R.drawable.ic_signal_cellular;
+     }
+ }
+diff --git a/packages/SystemUI/res/values/dimens.xml b/packages/SystemUI/res/values/dimens.xml
+index fe6e639bc198..71b969b39b46 100644
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -166,8 +166,8 @@
+     so the width of the icon should be 17.6dp * (12.0 / 20.0) = 10.56dp -->
+     <dimen name="status_bar_battery_icon_width">10.56dp</dimen>
+ 
+-    <!-- Original canvas is 24x14 (ratio 1.714). Height 17.6dp → width 17.6 * (24/13) ≈ 32.5dp -->
+-    <dimen name="status_bar_battery_unified_icon_width">32.5dp</dimen>
++    <!-- Original canvas is 24x14 (ratio 1.714). For 17.6dp height portrait battery, width is 10.56dp -->
++    <dimen name="status_bar_battery_unified_icon_width">10.56dp</dimen>
+     <dimen name="status_bar_battery_unified_icon_height">17.6dp</dimen>
+ 
+     <!-- The battery icon is 13sp tall, but the other system icons are 15sp tall (see
+diff --git a/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarSettings.kt b/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarSettings.kt
+index efe203bf53c8..1ac2772ef34b 100644
+--- a/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarSettings.kt
++++ b/packages/SystemUI/src/com/android/systemui/axdynamicbar/domain/AxDynamicBarSettings.kt
+@@ -7,31 +7,43 @@ import com.android.systemui.axdynamicbar.model.IslandEvent
+ import com.android.systemui.axdynamicbar.shared.EVENT_TYPE_IDS
+ import com.android.systemui.dagger.SysUISingleton
+ import com.android.systemui.dagger.qualifiers.Main
+-import com.android.systemui.util.settings.SecureSettings
++import com.android.systemui.util.settings.SystemSettings
+ import javax.inject.Inject
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+-import org.json.JSONArray
+ 
+ @SysUISingleton
+ class AxDynamicBarSettings @Inject constructor(
+     @Main private val mainHandler: Handler,
+-    private val secureSettings: SecureSettings,
++    private val systemSettings: SystemSettings,
+ ) {
+     companion object {
+-        const val KEY_ENABLED = "ax_dynamic_bar_enabled"
+-        const val KEY_EVENTS = "ax_dynamic_bar_events"
++        const val KEY_DYNAMIC_ISLAND_ENABLED = "dynamic_island_enabled"
++        const val KEY_CUTOUT_TYPE = "dynamic_island_cutout_type"
++        const val KEY_CUTOUT_WIDTH_OFFSET = "dynamic_island_cutout_width_offset"
++        const val KEY_CUTOUT_HEIGHT_OFFSET = "dynamic_island_cutout_height_offset"
++
++        const val KEY_EVENT_MEDIA = "dynamic_island_event_media"
++        const val KEY_EVENT_CALLS = "dynamic_island_event_calls"
++        const val KEY_EVENT_TORCH = "dynamic_island_event_torch"
++        const val KEY_EVENT_BATTERY = "dynamic_island_event_battery"
++        const val KEY_EVENT_TIMERS = "dynamic_island_event_timers"
++        const val KEY_EVENT_BIOMETRICS = "dynamic_island_event_biometrics"
++        const val KEY_EVENT_RECORDING = "dynamic_island_event_recording"
++
+         const val KEY_KEYGUARD_ENABLED = "ax_dynamic_bar_keyguard_enabled"
+         const val KEY_KEYGUARD_BATTERY_CHIP_MODE = "ax_dynamic_bar_keyguard_battery_chip_mode"
+ 
+-        const val DYNAMIC_ISLAND_CUTOUT_WIDTH = "dynamic_island_cutout_width"
+-        const val DYNAMIC_ISLAND_CUTOUT_HEIGHT = "dynamic_island_cutout_height"
++        // Legacy / compat constants
++        const val KEY_ENABLED = KEY_DYNAMIC_ISLAND_ENABLED
++        const val DYNAMIC_ISLAND_CUTOUT_WIDTH = KEY_CUTOUT_WIDTH_OFFSET
++        const val DYNAMIC_ISLAND_CUTOUT_HEIGHT = KEY_CUTOUT_HEIGHT_OFFSET
+         const val DYNAMIC_ISLAND_CUTOUT_OFFSET_X = "dynamic_island_cutout_offset_x"
+         const val DYNAMIC_ISLAND_CUTOUT_OFFSET_Y = "dynamic_island_cutout_offset_y"
+     }
+ 
+-    private val _isEnabled = MutableStateFlow(false)
++    private val _isEnabled = MutableStateFlow(true)
+     @get:JvmName("getIsEnabled") val isEnabled: StateFlow<Boolean> = _isEnabled.asStateFlow()
+ 
+     private val _isKeyguardEnabled = MutableStateFlow(true)
+@@ -40,14 +52,16 @@ class AxDynamicBarSettings @Inject constructor(
+     private val _keyguardBatteryChipMode = MutableStateFlow(1)
+     val keyguardBatteryChipMode: StateFlow<Int> = _keyguardBatteryChipMode.asStateFlow()
+ 
+-    private val _disabledEventTypes = MutableStateFlow<Set<String>>(emptySet())
+-    val disabledEventTypes: StateFlow<Set<String>> = _disabledEventTypes.asStateFlow()
++    private val _cutoutType = MutableStateFlow("center")
++    val cutoutType: StateFlow<String> = _cutoutType.asStateFlow()
+ 
+-    private val _cutoutWidth = MutableStateFlow(0)
+-    val cutoutWidth: StateFlow<Int> = _cutoutWidth.asStateFlow()
++    private val _cutoutWidthOffset = MutableStateFlow(0)
++    val cutoutWidthOffset: StateFlow<Int> = _cutoutWidthOffset.asStateFlow()
++    val cutoutWidth: StateFlow<Int> = _cutoutWidthOffset.asStateFlow()
+ 
+-    private val _cutoutHeight = MutableStateFlow(0)
+-    val cutoutHeight: StateFlow<Int> = _cutoutHeight.asStateFlow()
++    private val _cutoutHeightOffset = MutableStateFlow(0)
++    val cutoutHeightOffset: StateFlow<Int> = _cutoutHeightOffset.asStateFlow()
++    val cutoutHeight: StateFlow<Int> = _cutoutHeightOffset.asStateFlow()
+ 
+     private val _cutoutOffsetX = MutableStateFlow(0)
+     val cutoutOffsetX: StateFlow<Int> = _cutoutOffsetX.asStateFlow()
+@@ -55,6 +69,30 @@ class AxDynamicBarSettings @Inject constructor(
+     private val _cutoutOffsetY = MutableStateFlow(0)
+     val cutoutOffsetY: StateFlow<Int> = _cutoutOffsetY.asStateFlow()
+ 
++    private val _eventMedia = MutableStateFlow(true)
++    val eventMedia: StateFlow<Boolean> = _eventMedia.asStateFlow()
++
++    private val _eventCalls = MutableStateFlow(true)
++    val eventCalls: StateFlow<Boolean> = _eventCalls.asStateFlow()
++
++    private val _eventTorch = MutableStateFlow(true)
++    val eventTorch: StateFlow<Boolean> = _eventTorch.asStateFlow()
++
++    private val _eventBattery = MutableStateFlow(true)
++    val eventBattery: StateFlow<Boolean> = _eventBattery.asStateFlow()
++
++    private val _eventTimers = MutableStateFlow(true)
++    val eventTimers: StateFlow<Boolean> = _eventTimers.asStateFlow()
++
++    private val _eventBiometrics = MutableStateFlow(true)
++    val eventBiometrics: StateFlow<Boolean> = _eventBiometrics.asStateFlow()
++
++    private val _eventRecording = MutableStateFlow(true)
++    val eventRecording: StateFlow<Boolean> = _eventRecording.asStateFlow()
++
++    private val _disabledEventTypes = MutableStateFlow<Set<String>>(emptySet())
++    val disabledEventTypes: StateFlow<Set<String>> = _disabledEventTypes.asStateFlow()
++
+     init {
+         refresh()
+     }
+@@ -72,94 +110,111 @@ class AxDynamicBarSettings @Inject constructor(
+         if (initialized) return
+         initialized = true
+         refresh()
+-        secureSettings.registerContentObserverForUserSync(
+-            KEY_ENABLED,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+-            KEY_EVENTS,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
++        val allKeys = listOf(
++            KEY_DYNAMIC_ISLAND_ENABLED,
++            KEY_CUTOUT_TYPE,
++            KEY_CUTOUT_WIDTH_OFFSET,
++            KEY_CUTOUT_HEIGHT_OFFSET,
++            KEY_EVENT_MEDIA,
++            KEY_EVENT_CALLS,
++            KEY_EVENT_TORCH,
++            KEY_EVENT_BATTERY,
++            KEY_EVENT_TIMERS,
++            KEY_EVENT_BIOMETRICS,
++            KEY_EVENT_RECORDING,
+             KEY_KEYGUARD_ENABLED,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+             KEY_KEYGUARD_BATTERY_CHIP_MODE,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+-            DYNAMIC_ISLAND_CUTOUT_WIDTH,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+-            DYNAMIC_ISLAND_CUTOUT_HEIGHT,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+             DYNAMIC_ISLAND_CUTOUT_OFFSET_X,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+-        )
+-        secureSettings.registerContentObserverForUserSync(
+             DYNAMIC_ISLAND_CUTOUT_OFFSET_Y,
+-            false,
+-            settingsObserver,
+-            UserHandle.USER_ALL,
+         )
++        for (key in allKeys) {
++            systemSettings.registerContentObserverForUserSync(
++                key,
++                false,
++                settingsObserver,
++                UserHandle.USER_ALL,
++            )
++        }
+     }
+ 
+     fun destroy() {
+         if (!initialized) return
+         initialized = false
+-        secureSettings.getContentResolver().unregisterContentObserver(settingsObserver)
++        systemSettings.getContentResolver().unregisterContentObserver(settingsObserver)
+     }
+ 
+     private fun refresh() {
+         _isEnabled.value =
+-            secureSettings.getIntForUser(KEY_ENABLED, 0, UserHandle.USER_CURRENT) == 1
++            systemSettings.getIntForUser(KEY_DYNAMIC_ISLAND_ENABLED, 1, UserHandle.USER_CURRENT) == 1
+         _isKeyguardEnabled.value =
+-            secureSettings.getIntForUser(KEY_KEYGUARD_ENABLED, 1, UserHandle.USER_CURRENT) == 1
++            systemSettings.getIntForUser(KEY_KEYGUARD_ENABLED, 1, UserHandle.USER_CURRENT) == 1
+         _keyguardBatteryChipMode.value =
+-            secureSettings.getIntForUser(KEY_KEYGUARD_BATTERY_CHIP_MODE, 1, UserHandle.USER_CURRENT)
+-
+-        _cutoutWidth.value =
+-            secureSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_WIDTH, 0, UserHandle.USER_CURRENT)
+-        _cutoutHeight.value =
+-            secureSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_HEIGHT, 0, UserHandle.USER_CURRENT)
++            systemSettings.getIntForUser(KEY_KEYGUARD_BATTERY_CHIP_MODE, 1, UserHandle.USER_CURRENT)
++
++        _cutoutType.value =
++            systemSettings.getStringForUser(KEY_CUTOUT_TYPE, UserHandle.USER_CURRENT) ?: "center"
++        _cutoutWidthOffset.value =
++            systemSettings.getIntForUser(KEY_CUTOUT_WIDTH_OFFSET, 0, UserHandle.USER_CURRENT)
++        _cutoutHeightOffset.value =
++            systemSettings.getIntForUser(KEY_CUTOUT_HEIGHT_OFFSET, 0, UserHandle.USER_CURRENT)
+         _cutoutOffsetX.value =
+-            secureSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_OFFSET_X, 0, UserHandle.USER_CURRENT)
++            systemSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_OFFSET_X, 0, UserHandle.USER_CURRENT)
+         _cutoutOffsetY.value =
+-            secureSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_OFFSET_Y, 0, UserHandle.USER_CURRENT)
+-
+-        val json = secureSettings.getStringForUser(KEY_EVENTS, UserHandle.USER_CURRENT) ?: ""
+-        _disabledEventTypes.value =
+-            try {
+-                if (json.isBlank()) emptySet()
+-                else {
+-                    val arr = JSONArray(json)
+-                    (0 until arr.length()).mapNotNull { arr.optString(it) }.toSet()
+-                }
+-            } catch (_: Exception) {
+-                emptySet()
+-            }
++            systemSettings.getIntForUser(DYNAMIC_ISLAND_CUTOUT_OFFSET_Y, 0, UserHandle.USER_CURRENT)
++
++        val media = systemSettings.getIntForUser(KEY_EVENT_MEDIA, 1, UserHandle.USER_CURRENT) == 1
++        val calls = systemSettings.getIntForUser(KEY_EVENT_CALLS, 1, UserHandle.USER_CURRENT) == 1
++        val torch = systemSettings.getIntForUser(KEY_EVENT_TORCH, 1, UserHandle.USER_CURRENT) == 1
++        val battery = systemSettings.getIntForUser(KEY_EVENT_BATTERY, 1, UserHandle.USER_CURRENT) == 1
++        val timers = systemSettings.getIntForUser(KEY_EVENT_TIMERS, 1, UserHandle.USER_CURRENT) == 1
++        val biometrics = systemSettings.getIntForUser(KEY_EVENT_BIOMETRICS, 1, UserHandle.USER_CURRENT) == 1
++        val recording = systemSettings.getIntForUser(KEY_EVENT_RECORDING, 1, UserHandle.USER_CURRENT) == 1
++
++        _eventMedia.value = media
++        _eventCalls.value = calls
++        _eventTorch.value = torch
++        _eventBattery.value = battery
++        _eventTimers.value = timers
++        _eventBiometrics.value = biometrics
++        _eventRecording.value = recording
++
++        val disabled = mutableSetOf<String>()
++        if (!media) disabled.add("media")
++        if (!calls) {
++            disabled.add("call")
++            disabled.add("promoted_ongoing")
++        }
++        if (!torch) disabled.add("torch")
++        if (!battery) disabled.add("charging")
++        if (!timers) {
++            disabled.add("timer")
++            disabled.add("stopwatch")
++            disabled.add("alarm")
++        }
++        if (!biometrics) disabled.add("biometric_unlock")
++        if (!recording) disabled.add("audio_recording")
++
++        _disabledEventTypes.value = disabled
+     }
+ 
+     fun isEventEnabled(event: IslandEvent): Boolean {
+-        val typeId = EVENT_TYPE_IDS[event::class.java] ?: return true
+-        return typeId !in _disabledEventTypes.value
++        return when (event) {
++            is IslandEvent.Media -> _eventMedia.value
++            is IslandEvent.AudioRecording -> _eventRecording.value
++            is IslandEvent.AospChip -> {
++                if (event.active.key == "ScreenRecord") _eventRecording.value
++                else if (event.active.key.startsWith("callChip-")) _eventCalls.value
++                else true
++            }
++            is IslandEvent.PromotedOngoing -> _eventCalls.value
++            is IslandEvent.Torch -> _eventTorch.value
++            is IslandEvent.Charging -> _eventBattery.value
++            is IslandEvent.Timer, is IslandEvent.Stopwatch, is IslandEvent.Alarm -> _eventTimers.value
++            is IslandEvent.BiometricUnlock -> _eventBiometrics.value
++            else -> {
++                val typeId = EVENT_TYPE_IDS[event::class.java] ?: return true
++                typeId !in _disabledEventTypes.value
++            }
++        }
+     }
+ }
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+index 0e2ee73ad5da..36fc3bde49d8 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
++++ b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterView.java
+@@ -133,6 +133,18 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     private BatteryDrawableState mUnifiedBatteryState =
+             BatteryDrawableState.Companion.getDefaultInitialState();
+ 
++    private boolean isLegacyIconsEnabled() {
++        return Settings.System.getIntForUser(
++                getContext().getContentResolver(),
++                "status_bar_legacy_icons",
++                1,
++                UserHandle.USER_CURRENT) == 1;
++    }
++
++    private boolean isUnifiedBatteryEnabled() {
++        return NewStatusBarIcons.isEnabled() && !isLegacyIconsEnabled();
++    }
++
+     public BatteryMeterView(Context context, AttributeSet attrs) {
+         this(context, attrs, 0);
+     }
+@@ -164,31 +176,8 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+ 
+         setupLayoutTransition();
+ 
+-        mBatteryIconView = new ImageView(context);
+-        if (NewStatusBarIcons.isEnabled()) {
+-            mUnifiedBattery = BatteryLayersDrawable.Companion
+-                    .newBatteryDrawable(context, mUnifiedBatteryState);
+-            mBatteryIconView.setImageDrawable(mUnifiedBattery);
+-
+-            final MarginLayoutParams mlp = new MarginLayoutParams(
+-                    getResources().getDimensionPixelSize(
+-                            R.dimen.status_bar_battery_unified_icon_width),
+-                    getResources().getDimensionPixelSize(
+-                            R.dimen.status_bar_battery_unified_icon_height));
+-            addView(mBatteryIconView, mlp);
+-        } else {
+-            mBatteryIconView.setImageDrawable(mDrawable);
+-            final MarginLayoutParams mlp = new MarginLayoutParams(
+-                    getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_width),
+-                    getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_height));
+-            mlp.setMargins(0, 0, 0,
+-                    getResources().getDimensionPixelOffset(R.dimen.battery_margin_bottom));
+-            addView(mBatteryIconView, mlp);
+-        }
+-
+-        updateShowPercent();
+-        updateBatteryStyle();
+         mDualToneHandler = new DualToneHandler(context);
++        updateBatteryStyle();
+         // Init to not dark at all.
+         onDarkChanged(new ArrayList<Rect>(), 0, DarkIconDispatcher.DEFAULT_ICON_TINT);
+ 
+@@ -198,10 +187,16 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+ 
+ 
+     private void setBatteryDrawableState(BatteryDrawableState newState) {
+-        if (!NewStatusBarIcons.isEnabled()) return;
++        if (!isUnifiedBatteryEnabled()) return;
+ 
+         mUnifiedBatteryState = newState;
+-        mUnifiedBattery.setBatteryState(mUnifiedBatteryState);
++        if (mUnifiedBattery == null) {
++            mUnifiedBattery = BatteryLayersDrawable.Companion
++                    .newBatteryDrawable(getContext(), mUnifiedBatteryState);
++        }
++        if (mUnifiedBattery != null) {
++            mUnifiedBattery.setBatteryState(mUnifiedBatteryState);
++        }
+     }
+ 
+     private void setupLayoutTransition() {
+@@ -284,7 +279,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+         updateShowPercent(); // required for % text only when charging
+         updatePercentText();
+ 
+-        if (NewStatusBarIcons.isEnabled()) {
++        if (isUnifiedBatteryEnabled()) {
+             Drawable attr = mUnifiedBatteryState.getAttribution();
+             if (isCharging != wasCharging) {
+                 attr = getBatteryAttribution(isCharging);
+@@ -305,7 +300,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     // Potentially reloads any attribution. Should not be called if the state hasn't changed
+     @SuppressLint("UseCompatLoadingForDrawables")
+     private Drawable getBatteryAttribution(boolean isCharging) {
+-        if (!NewStatusBarIcons.isEnabled()) return null;
++        if (!isUnifiedBatteryEnabled()) return null;
+ 
+         int resId = 0;
+         if (mPowerSaveEnabled) {
+@@ -353,8 +348,10 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+             return;
+         }
+         mPowerSaveEnabled = isPowerSave;
+-        if (!NewStatusBarIcons.isEnabled()) {
+-            mThemedDrawable.setPowerSaveEnabled(isPowerSave);
++        if (!isUnifiedBatteryEnabled()) {
++            if (mThemedDrawable != null) {
++                mThemedDrawable.setPowerSaveEnabled(isPowerSave);
++            }
+         } else {
+             setBatteryDrawableState(
+                     new BatteryDrawableState(
+@@ -376,7 +373,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+         }
+ 
+         updateContentDescription();
+-        if (!NewStatusBarIcons.isEnabled()) {
++        if (!isUnifiedBatteryEnabled()) {
+             // The battery drawable is a different size depending on whether it's currently
+             // overheated or not, so we need to re-scale the view when overheated changes.
+             scaleBatteryMeterViews();
+@@ -396,7 +393,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+         boolean valueChanged = mIsIncompatibleCharging != isIncompatibleCharging;
+         mIsIncompatibleCharging = isIncompatibleCharging;
+         if (valueChanged) {
+-            if (NewStatusBarIcons.isEnabled()) {
++            if (isUnifiedBatteryEnabled()) {
+                 setBatteryDrawableState(
+                         new BatteryDrawableState(
+                                 mUnifiedBatteryState.getLevel(),
+@@ -451,7 +448,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     }
+ 
+     void updatePercentText() {
+-        if (!NewStatusBarIcons.isEnabled()) {
++        if (!isUnifiedBatteryEnabled()) {
+             updatePercentTextLegacy();
+             return;
+         }
+@@ -573,7 +570,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     }
+ 
+     void updateShowPercent() {
+-        if (!NewStatusBarIcons.isEnabled()) {
++        if (!isUnifiedBatteryEnabled()) {
+             updateShowPercentLegacy();
+             return;
+         }
+@@ -681,11 +678,13 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     }
+ 
+     void scaleBatteryMeterViews() {
+-        if (!NewStatusBarIcons.isEnabled()) {
++        if (!isUnifiedBatteryEnabled()) {
+             scaleBatteryMeterViewsLegacy();
+             return;
+         }
+ 
++        if (mBatteryIconView == null) return;
++
+         // For simplicity's sake, copy the general pattern in the legacy method and use the new
+         // resources, excluding what we don't need
+         Resources res = getContext().getResources();
+@@ -706,7 +705,9 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+                 Math.round(mainBatteryHeight));
+ 
+         mBatteryIconView.setLayoutParams(scaledLayoutParams);
+-        mBatteryIconView.invalidateDrawable(mUnifiedBattery);
++        if (mUnifiedBattery != null) {
++            mBatteryIconView.invalidateDrawable(mUnifiedBattery);
++        }
+     }
+ 
+     /**
+@@ -779,21 +780,40 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+             mBatteryIconView = null;
+         }
+ 
+-        final AccessorizedBatteryDrawable style = mStyleMap.get(mBatteryStyle);
+-        mThemedDrawable = style;
+-        if (style != null) {
++        if (isUnifiedBatteryEnabled()) {
++            if (mUnifiedBattery == null) {
++                mUnifiedBattery = BatteryLayersDrawable.Companion
++                        .newBatteryDrawable(getContext(), mUnifiedBatteryState);
++            }
+             mBatteryIconView = new ImageView(getContext());
+-            mBatteryIconView.setImageDrawable(style);
++            mBatteryIconView.setImageDrawable(mUnifiedBattery);
+             final MarginLayoutParams mlp = new MarginLayoutParams(
+-                    getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_width),
+-                    getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_height));
+-            mlp.setMargins(0, 0, 0,
+-                    getResources().getDimensionPixelOffset(R.dimen.battery_margin_bottom));
++                    getResources().getDimensionPixelSize(
++                            R.dimen.status_bar_battery_unified_icon_width),
++                    getResources().getDimensionPixelSize(
++                            R.dimen.status_bar_battery_unified_icon_height));
+             addView(mBatteryIconView, 0, mlp);
+             scaleBatteryMeterViews();
+-            updateColors(mForegroundColor, mBackgroundColor, mSingleToneColor);
++            onDarkChanged(new ArrayList<Rect>(), 0, DarkIconDispatcher.DEFAULT_ICON_TINT);
+             onBatteryLevelChanged(mLevel, mPluggedIn);
+             onPowerSaveChanged(mPowerSaveEnabled);
++        } else {
++            final AccessorizedBatteryDrawable style = mStyleMap.get(mBatteryStyle);
++            mThemedDrawable = style;
++            if (style != null) {
++                mBatteryIconView = new ImageView(getContext());
++                mBatteryIconView.setImageDrawable(style);
++                final MarginLayoutParams mlp = new MarginLayoutParams(
++                        getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_width),
++                        getResources().getDimensionPixelSize(R.dimen.status_bar_battery_icon_height));
++                mlp.setMargins(0, 0, 0,
++                        getResources().getDimensionPixelOffset(R.dimen.battery_margin_bottom));
++                addView(mBatteryIconView, 0, mlp);
++                scaleBatteryMeterViews();
++                updateColors(mForegroundColor, mBackgroundColor, mSingleToneColor);
++                onBatteryLevelChanged(mLevel, mPluggedIn);
++                onPowerSaveChanged(mPowerSaveEnabled);
++            }
+         }
+         updateShowPercent();
+         updatePercentText();
+@@ -807,11 +827,16 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+     public void onDarkChanged(ArrayList<Rect> areas, float darkIntensity, int tint) {
+         if (mIsStaticColor) return;
+ 
+-        if (!NewStatusBarIcons.isEnabled()) {
++        if (!isUnifiedBatteryEnabled()) {
+             onDarkChangedLegacy(areas, darkIntensity, tint);
+             return;
+         }
+ 
++        if (mUnifiedBattery == null) {
++            mUnifiedBattery = BatteryLayersDrawable.Companion
++                    .newBatteryDrawable(getContext(), mUnifiedBatteryState);
++        }
++
+         if (mUnifiedBattery == null) {
+             return;
+         }
+@@ -872,10 +897,16 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+ 
+     /** For NewStatusBarIcons, we use a BatteryColors object to declare the theme */
+     public void setUnifiedBatteryColors(BatteryColors colors) {
+-        if (!NewStatusBarIcons.isEnabled()) return;
++        if (!isUnifiedBatteryEnabled()) return;
+ 
+         mUnifiedBatteryColors = colors;
+-        mUnifiedBattery.setColors(mUnifiedBatteryColors);
++        if (mUnifiedBattery == null) {
++            mUnifiedBattery = BatteryLayersDrawable.Companion
++                    .newBatteryDrawable(getContext(), mUnifiedBatteryState);
++        }
++        if (mUnifiedBattery != null) {
++            mUnifiedBattery.setColors(mUnifiedBatteryColors);
++        }
+     }
+ 
+     @VisibleForTesting
+@@ -899,7 +930,7 @@ public class BatteryMeterView extends LinearLayout implements DarkReceiver {
+         pw.println("    mPluggedIn: " + mPluggedIn);
+         pw.println("    mLevel: " + mLevel);
+         pw.println("    mMode: " + mShowPercentMode);
+-        if (NewStatusBarIcons.isEnabled()) {
++        if (isUnifiedBatteryEnabled()) {
+             pw.println("    mUnifiedBatteryState: " + mUnifiedBatteryState);
+         }
+     }
+diff --git a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
+index c447d5580b80..6d0bff21fbef 100644
+--- a/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
++++ b/packages/SystemUI/src/com/android/systemui/battery/BatteryMeterViewController.java
+@@ -251,6 +251,10 @@ public class BatteryMeterViewController extends ViewController<BatteryMeterView>
+                 Settings.System.getUriFor(SHOW_BATTERY_PERCENT_INSIDE),
+                 false,
+                 mSettingObserver);
++        mContentResolver.registerContentObserver(
++                Settings.System.getUriFor("status_bar_legacy_icons"),
++                false,
++                mSettingObserver);
+     }
+ 
+     private final class SettingObserver extends ContentObserver {
+@@ -275,7 +279,9 @@ public class BatteryMeterViewController extends ViewController<BatteryMeterView>
+                     mView.updatePercentView();
+                     break;
+                 case STATUS_BAR_BATTERY_STYLE:
++                case "status_bar_legacy_icons":
+                     mView.updateBatteryStyle();
++                    mView.postInvalidate();
+                     break;
+             }
+         }
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java b/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
+index 1953d8dab060..f2c70ca858a7 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/connectivity/WifiIcons.java
+@@ -29,53 +29,29 @@ public class WifiIcons {
+     public static final int WIFI_NO_SIGNAL = WIFI_FULL_ICONS[0];
+ 
+     /**
+-     * Check the aconfig flag to decide on which icons to use. Can be removed once the flag is gone
++     * Check the flag/setting to decide on which icons to use.
++     * Returns classic A14 5-bar icons when legacy icons are enabled.
+      */
+     private static int[] getIconsBasedOnFlag() {
+-        if (newStatusBarIcons()) {
+-            // TODO(b/396664075):
+-            // The new wifi icons only define a range of [0, 3]. Since this array is indexed on
+-            // level, we can simulate the range squash by mapping both level 3 to drawn-level 2, and
+-            // level 4 to drawn-level 3
+-            return new int[] {
+-                R.drawable.ic_wifi_0,
+-                R.drawable.ic_wifi_1,
+-                R.drawable.ic_wifi_2,
+-                R.drawable.ic_wifi_2,
+-                R.drawable.ic_wifi_3
+-            };
+-        } else {
+-            return new int[] {
+-                com.android.internal.R.drawable.ic_wifi_signal_0,
+-                com.android.internal.R.drawable.ic_wifi_signal_1,
+-                com.android.internal.R.drawable.ic_wifi_signal_2,
+-                com.android.internal.R.drawable.ic_wifi_signal_3,
+-                com.android.internal.R.drawable.ic_wifi_signal_4
+-            };
+-        }
++        return new int[] {
++            com.android.internal.R.drawable.ic_wifi_signal_0,
++            com.android.internal.R.drawable.ic_wifi_signal_1,
++            com.android.internal.R.drawable.ic_wifi_signal_2,
++            com.android.internal.R.drawable.ic_wifi_signal_3,
++            com.android.internal.R.drawable.ic_wifi_signal_4
++        };
+     }
+ 
+     public static final int[] WIFI_NO_INTERNET_ICONS = getErrorIconsBasedOnFlag();
+ 
+-    private static int [] getErrorIconsBasedOnFlag() {
+-        if (newStatusBarIcons()) {
+-            // See above note, new wifi icons only have 3 bars, so levels 2 and 3 are the same
+-            return new int[] {
+-                R.drawable.ic_wifi_0_error,
+-                R.drawable.ic_wifi_1_error,
+-                R.drawable.ic_wifi_2_error,
+-                R.drawable.ic_wifi_2_error,
+-                R.drawable.ic_wifi_3_error,
+-            };
+-        } else {
+-            return new int[] {
+-                R.drawable.ic_no_internet_wifi_signal_0,
+-                R.drawable.ic_no_internet_wifi_signal_1,
+-                R.drawable.ic_no_internet_wifi_signal_2,
+-                R.drawable.ic_no_internet_wifi_signal_3,
+-                R.drawable.ic_no_internet_wifi_signal_4
+-            };
+-        }
++    private static int[] getErrorIconsBasedOnFlag() {
++        return new int[] {
++            com.android.settingslib.R.drawable.ic_no_internet_wifi_signal_0,
++            com.android.settingslib.R.drawable.ic_no_internet_wifi_signal_1,
++            com.android.settingslib.R.drawable.ic_no_internet_wifi_signal_2,
++            com.android.settingslib.R.drawable.ic_no_internet_wifi_signal_3,
++            com.android.settingslib.R.drawable.ic_no_internet_wifi_signal_4
++        };
+     }
+ 
+     public static final int[][] QS_WIFI_SIGNAL_STRENGTH = {
+@@ -87,15 +63,7 @@ public class WifiIcons {
+ 
+     public static final int QS_WIFI_NO_NETWORK = com.android.internal.R.drawable.ic_wifi_signal_0;
+ 
+-    public static final int WIFI_NO_NETWORK = getNoNetworkBasedOnFlag();
+-
+-    private static int getNoNetworkBasedOnFlag() {
+-        if (newStatusBarIcons()) {
+-            return R.drawable.ic_wifi_0;
+-        } else {
+-            return QS_WIFI_NO_NETWORK;
+-        }
+-    }
++    public static final int WIFI_NO_NETWORK = QS_WIFI_NO_NETWORK;
+ 
+     static final int WIFI_LEVEL_COUNT = WIFI_SIGNAL_STRENGTH[0].length;
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+index cb274edc01fb..aa2eb9d903e6 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+@@ -16,7 +16,12 @@
+ 
+ package com.android.systemui.statusbar.pipeline.battery.ui.composable
+ 
++import android.database.ContentObserver
+ import android.graphics.Rect
++import android.os.Handler
++import android.os.Looper
++import android.os.UserHandle
++import android.provider.Settings
+ import androidx.compose.foundation.Canvas
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+@@ -27,6 +32,7 @@ import androidx.compose.foundation.layout.width
+ import androidx.compose.foundation.layout.wrapContentWidth
+ import androidx.compose.foundation.text.BasicText
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableFloatStateOf
+ import androidx.compose.runtime.mutableStateOf
+@@ -62,6 +68,7 @@ import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.util.fastFirst
+ import androidx.compose.ui.util.fastFirstOrNull
++import com.android.systemui.battery.ThemedBatteryBody
+ import com.android.systemui.common.ui.compose.load
+ import com.android.systemui.compose.modifiers.sysuiResTag
+ import com.android.systemui.statusbar.phone.domain.interactor.IsAreaDark
+@@ -204,6 +211,49 @@ fun UnifiedBattery(
+         return
+     }
+ 
++    val context = LocalContext.current
++    var isLegacyIcons by remember(context) {
++        mutableStateOf(
++            Settings.System.getInt(context.contentResolver, "status_bar_legacy_icons", 1) == 1
++        )
++    }
++
++    DisposableEffect(context) {
++        val resolver = context.contentResolver
++        val uri = Settings.System.getUriFor("status_bar_legacy_icons")
++        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
++            override fun onChange(selfChange: Boolean) {
++                isLegacyIcons =
++                    Settings.System.getInt(resolver, "status_bar_legacy_icons", 1) == 1
++            }
++        }
++        resolver.registerContentObserver(uri, false, observer, UserHandle.USER_ALL)
++        onDispose {
++            resolver.unregisterContentObserver(observer)
++        }
++    }
++
++    if (isLegacyIcons) {
++        ThemedBatteryBody(
++            batteryLevel = viewModel.level ?: 0,
++            pluggedIn = viewModel.isCharging,
++            powerSave = viewModel.attribution == BatteryGlyph.Plus,
++            frameColor = if (isDarkProvider().isDarkTheme(bounds)) android.graphics.Color.WHITE else android.graphics.Color.BLACK,
++            modifier =
++                modifier
++                    .height(17.6.dp)
++                    .width(10.56.dp)
++                    .sysuiResTag(BatteryViewModel.TEST_TAG)
++                    .onLayoutRectChanged { relativeLayoutBounds ->
++                        bounds =
++                            with(relativeLayoutBounds.boundsInScreen) {
++                                Rect(left, top, right, bottom)
++                            }
++                    },
++        )
++        return
++    }
++
+     BatteryLayout(
+         attribution = viewModel.attribution,
+         levelProvider = { viewModel.level },
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
+index 19d40d97900f..29734148a64b 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
+@@ -76,10 +76,12 @@ class ModernStatusBarMobileView(context: Context, attrs: AttributeSet?) :
+ 
+         // triangle
+         requireViewById<ImageView>(R.id.mobile_signal).apply {
+-            layoutParams.height =
++            val signalSize =
+                 context.resources.getDimensionPixelSize(
+-                    R.dimen.status_bar_mobile_signal_size_updated
++                    R.dimen.status_bar_mobile_signal_size
+                 )
++            layoutParams.width = signalSize
++            layoutParams.height = signalSize
+         }
+ 
+         // RAT indicator container
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/wifi/ui/view/ModernStatusBarWifiView.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/wifi/ui/view/ModernStatusBarWifiView.kt
+index 0de5a8949949..5afa82c8f2c7 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/wifi/ui/view/ModernStatusBarWifiView.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/wifi/ui/view/ModernStatusBarWifiView.kt
+@@ -73,28 +73,23 @@ class ModernStatusBarWifiView(context: Context, attrs: AttributeSet?) :
+     }
+ 
+     private fun updateDimensions() {
+-        // Flag-specific configuration
+-        if (NewStatusBarIcons.isEnabled) {
+-            // The newer asset does not embed whitespace around it, and is therefore
+-            // rectangular. Use wrap_content for the width in this case
+-            val iconView = requireViewById<ImageView>(R.id.wifi_signal)
+-            iconView.adjustViewBounds = true
+-            val lp = iconView.layoutParams
+-            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+-            lp.height =
+-                resources.getDimensionPixelSize(R.dimen.status_bar_wifi_signal_height_updated)
++        val iconView = requireViewById<ImageView>(R.id.wifi_signal)
++        iconView.adjustViewBounds = true
++        val lp = iconView.layoutParams
++        val signalSize = resources.getDimensionPixelSize(R.dimen.status_bar_wifi_signal_size)
++        lp.width = signalSize
++        lp.height = signalSize
++        iconView.layoutParams = lp
+ 
+-            // New status bar icons have a single 3sp spacing defined
+-            (requireViewById<AlphaOptimizedLinearLayout>(R.id.wifi_group).layoutParams
+-                    as MarginLayoutParams)
+-                .apply {
+-                    val margin =
+-                        context.resources.getDimensionPixelSize(
+-                            R.dimen.status_bar_wifi_signal_horizontal_margin
+-                        )
+-                    marginStart = margin
+-                    marginEnd = margin
+-                }
+-        }
++        (requireViewById<AlphaOptimizedLinearLayout>(R.id.wifi_group).layoutParams
++                as MarginLayoutParams)
++            .apply {
++                val margin =
++                    context.resources.getDimensionPixelSize(
++                        R.dimen.status_bar_wifi_signal_horizontal_margin
++                    )
++                marginStart = margin
++                marginEnd = margin
++            }
+     }
+ }
+-- 
+2.43.0
+

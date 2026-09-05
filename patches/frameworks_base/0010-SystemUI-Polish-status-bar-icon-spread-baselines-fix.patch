@@ -1,0 +1,86 @@
+From 1bad7f723c700a7845bb360d466eb96e104266c3 Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 16:34:59 +0000
+Subject: [PATCH 10/13] SystemUI: Polish status bar icon spread baselines, fix
+ battery text-only attribution height, and add super call in MobileView
+
+---
+ packages/SystemUI/res/values/dimens.xml       | 19 ++++++++++---------
+ .../battery/ui/composable/UnifiedBattery.kt   |  2 +-
+ .../ui/view/ModernStatusBarMobileView.kt      |  1 +
+ 3 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/packages/SystemUI/res/values/dimens.xml b/packages/SystemUI/res/values/dimens.xml
+index 88fb13591b2c..805b7b52cd74 100644
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -191,12 +191,13 @@
+     <!-- End padding for left-aligned status bar clock -->
+     <dimen name="status_bar_left_clock_end_padding">2sp</dimen>
+ 
+-    <!-- Margins before/after the new wifi icon. Tightened old-style 3dp. -->
+-    <dimen name="status_bar_wifi_signal_horizontal_margin">3dp</dimen>
++    <!-- Margins before/after the new wifi icon. 5dp spread baseline (see
++         sw1500 7.5sp = 1.5x). -->
++    <dimen name="status_bar_wifi_signal_horizontal_margin">5dp</dimen>
+ 
+     <!-- Spacing after the wifi signals that is present if there are any icons following it.
+-         Tight old-style 2dp. -->
+-    <dimen name="status_bar_wifi_signal_spacer_width">2dp</dimen>
++         4dp spread baseline (see sw1500 6sp = 1.5x). -->
++    <dimen name="status_bar_wifi_signal_spacer_width">4dp</dimen>
+ 
+     <!-- Size of the view displaying the wifi inout icon in the status bar. -->
+     <dimen name="status_bar_wifi_inout_container_size">17.6dp</dimen>
+@@ -226,9 +227,9 @@
+     <dimen name="status_bar_mobile_container_corner_radius">9sp</dimen>
+ 
+     <!-- Start-side margin for the mobile container (before the RAT or triangle).
+-         Tight old-style 3dp. -->
+-    <dimen name="status_bar_mobile_container_margin_start">3dp</dimen>
+-    <dimen name="status_bar_mobile_container_margin_end">3dp</dimen>
++         5dp spread baseline (see sw1500 7.5sp = 1.5x). -->
++    <dimen name="status_bar_mobile_container_margin_start">5dp</dimen>
++    <dimen name="status_bar_mobile_container_margin_end">5dp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the viewport height of mobile signal drawables such as ic_lte_mobiledata -->
+@@ -253,8 +254,8 @@
+     <!-- Spacing before the airplane mode icon if there are any icons preceding it. -->
+     <dimen name="status_bar_airplane_spacer_width">4sp</dimen>
+ 
+-    <!-- Spacing between system icons. Tight old-style 1dp. -->
+-    <dimen name="status_bar_system_icon_spacing">1dp</dimen>
++    <!-- Spacing between system icons. 2dp spread baseline (see sw1500 3sp = 1.5x). -->
++    <dimen name="status_bar_system_icon_spacing">2dp</dimen>
+ 
+     <!-- The amount to scale each of the status bar icons by. A value of 1 means no scaling. -->
+     <item name="status_bar_icon_scale_factor" format="float" type="dimen">1.0</item>
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+index 52181fed5bb0..65de7009a581 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/battery/ui/composable/UnifiedBattery.kt
+@@ -682,7 +682,7 @@ fun BatteryPercentTextOnly(
+                 colorsProvider = colorsProvider,
+                 modifier = Modifier
+                     .offset(y = (+1).dp)
+-                    .height(with(density) { size.width.toDp() })
++                    .height(with(density) { size.height.toDp() })
+                     .width(with(density) { size.width.toDp() })
+             )
+         }
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
+index 7e67d003d8c8..9a9b4b99f187 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/mobile/ui/view/ModernStatusBarMobileView.kt
+@@ -54,6 +54,7 @@ class ModernStatusBarMobileView(context: Context, attrs: AttributeSet?) :
+     }
+ 
+     public override fun onConfigurationChanged(newConfig: Configuration?) {
++        super.onConfigurationChanged(newConfig)
+         // Always enforce A14 spread sizing (17.6dp icon, 5dp container margins)
+         // for both legacy and modern paths.
+         configureLayoutForNewStatusBarIcons()
+-- 
+2.43.0
+

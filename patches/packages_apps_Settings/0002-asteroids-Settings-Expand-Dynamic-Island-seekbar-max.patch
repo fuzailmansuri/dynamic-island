@@ -1,0 +1,81 @@
+From fdac4af48abd170be348b5acb081e9f6e92ca66e Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 19:53:13 +0000
+Subject: [PATCH 2/2] asteroids: Settings: Expand Dynamic Island seekbar max
+ and persist emoji font family
+
+---
+ res/xml/yaap_settings_misc.xml                    |  4 ++--
+ src/com/android/settings/system/MiscSettings.java | 15 +++++++++++++++
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/res/xml/yaap_settings_misc.xml b/res/xml/yaap_settings_misc.xml
+index 22728b764c2..b4dde315621 100644
+--- a/res/xml/yaap_settings_misc.xml
++++ b/res/xml/yaap_settings_misc.xml
+@@ -85,7 +85,7 @@
+             android:title="@string/dynamic_island_width_title"
+             android:dependency="dynamic_island_enabled"
+             android:defaultValue="0"
+-            android:max="50"
++            android:max="100"
+             settings:min="-50"
+             settings:interval="1"
+             settings:units="dp"
+@@ -96,7 +96,7 @@
+             android:title="@string/dynamic_island_height_title"
+             android:dependency="dynamic_island_enabled"
+             android:defaultValue="0"
+-            android:max="50"
++            android:max="100"
+             settings:min="-50"
+             settings:interval="1"
+             settings:units="dp"
+diff --git a/src/com/android/settings/system/MiscSettings.java b/src/com/android/settings/system/MiscSettings.java
+index 7d9cefa3374..943699b90f0 100644
+--- a/src/com/android/settings/system/MiscSettings.java
++++ b/src/com/android/settings/system/MiscSettings.java
+@@ -26,6 +26,7 @@ import android.os.Bundle;
+ import android.os.RemoteException;
+ import android.os.ServiceManager;
+ import android.os.UserHandle;
++import android.provider.Settings;
+ import android.util.Log;
+ import android.widget.Toast;
+ 
+@@ -70,6 +71,16 @@ public class MiscSettings extends DashboardFragment implements
+         "fluent", "com.android.theme.font.emoji.fluent"
+     );
+ 
++    public static final String EMOJI_FONT_FAMILY_KEY = "emoji_font_family";
++
++    private static final Map<String, String> VALUE_TO_FAMILY = Map.of(
++        "apple", "apple-emoji",
++        "samsung", "samsung-emoji",
++        "twemoji", "twemoji",
++        "joypixels", "joypixels-emoji",
++        "fluent", "fluent-emoji"
++    );
++
+     private SharedPreferences mSharedPreferences;
+     private IBackupManager mBackupManager;
+     private IOverlayManager mOverlayManager;
+@@ -180,11 +191,15 @@ public class MiscSettings extends DashboardFragment implements
+                     for (String pkg : EMOJI_PACKAGES) {
+                         mOverlayManager.setEnabled(pkg, false, userId);
+                     }
++                    Settings.System.putString(getContentResolver(), EMOJI_FONT_FAMILY_KEY, "");
+                 } else {
+                     String targetPkg = VALUE_TO_PACKAGE.get(value);
+                     if (targetPkg != null) {
+                         mOverlayManager.setEnabledExclusiveInCategory(targetPkg, userId);
+                     }
++                    String familyName = VALUE_TO_FAMILY.get(value);
++                    Settings.System.putString(getContentResolver(), EMOJI_FONT_FAMILY_KEY,
++                            familyName != null ? familyName : "");
+                 }
+                 int index = mCustomEmojiFont.findIndexOfValue(value);
+                 if (index >= 0) {
+-- 
+2.43.0
+

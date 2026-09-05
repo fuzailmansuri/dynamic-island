@@ -1,0 +1,250 @@
+From 7da4b75a1af045b6dde2c0ccb6989d5e774acfeb Mon Sep 17 00:00:00 2001
+From: Fuzail Mansuri <mfm9875@gmail.com>
+Date: Sat, 5 Sep 2026 10:50:21 +0000
+Subject: [PATCH 1/2] overlay: emoji: Add strings and REQUIRED_SYSTEM_FONTS
+ metadata
+
+- Provide overlay labels in strings.xml for all emoji styles
+- Declare REQUIRED_SYSTEM_FONTS in AndroidManifest.xml
+- Set sdk_version: current in Android.bp
+---
+ overlay/emoji/FontAppleEmojiOverlay/Android.bp      |  1 +
+ .../emoji/FontAppleEmojiOverlay/AndroidManifest.xml | 13 ++++++++++---
+ .../FontAppleEmojiOverlay/res/values/strings.xml    |  4 ++++
+ overlay/emoji/FontFluentEmojiOverlay/Android.bp     |  1 +
+ .../FontFluentEmojiOverlay/AndroidManifest.xml      | 13 ++++++++++---
+ .../FontFluentEmojiOverlay/res/values/strings.xml   |  4 ++++
+ overlay/emoji/FontJoyPixelsEmojiOverlay/Android.bp  |  1 +
+ .../FontJoyPixelsEmojiOverlay/AndroidManifest.xml   | 13 ++++++++++---
+ .../res/values/strings.xml                          |  4 ++++
+ overlay/emoji/FontSamsungEmojiOverlay/Android.bp    |  1 +
+ .../FontSamsungEmojiOverlay/AndroidManifest.xml     | 13 ++++++++++---
+ .../FontSamsungEmojiOverlay/res/values/strings.xml  |  4 ++++
+ overlay/emoji/FontTwemojiOverlay/Android.bp         |  1 +
+ .../emoji/FontTwemojiOverlay/AndroidManifest.xml    | 13 ++++++++++---
+ .../emoji/FontTwemojiOverlay/res/values/strings.xml |  4 ++++
+ 15 files changed, 75 insertions(+), 15 deletions(-)
+ create mode 100644 overlay/emoji/FontAppleEmojiOverlay/res/values/strings.xml
+ create mode 100644 overlay/emoji/FontFluentEmojiOverlay/res/values/strings.xml
+ create mode 100644 overlay/emoji/FontJoyPixelsEmojiOverlay/res/values/strings.xml
+ create mode 100644 overlay/emoji/FontSamsungEmojiOverlay/res/values/strings.xml
+ create mode 100644 overlay/emoji/FontTwemojiOverlay/res/values/strings.xml
+
+diff --git a/overlay/emoji/FontAppleEmojiOverlay/Android.bp b/overlay/emoji/FontAppleEmojiOverlay/Android.bp
+index f63654a..200aa2f 100644
+--- a/overlay/emoji/FontAppleEmojiOverlay/Android.bp
++++ b/overlay/emoji/FontAppleEmojiOverlay/Android.bp
+@@ -1,5 +1,6 @@
+ runtime_resource_overlay {
+     name: "FontAppleEmojiOverlay",
++    sdk_version: "current",
+     theme: "FontAppleEmoji",
+     product_specific: true,
+ }
+diff --git a/overlay/emoji/FontAppleEmojiOverlay/AndroidManifest.xml b/overlay/emoji/FontAppleEmojiOverlay/AndroidManifest.xml
+index 04a4b98..efd178c 100644
+--- a/overlay/emoji/FontAppleEmojiOverlay/AndroidManifest.xml
++++ b/overlay/emoji/FontAppleEmojiOverlay/AndroidManifest.xml
+@@ -2,7 +2,14 @@
+     package="com.android.theme.font.emoji.apple"
+     android:versionCode="1"
+     android:versionName="1.0">
+-    <overlay android:targetPackage="android"
+-             android:category="android.theme.customization.font.emoji"
+-             android:priority="1000"/>
++    <overlay
++        android:targetPackage="android"
++        android:category="android.theme.customization.font.emoji"
++        android:priority="1000"/>
++    <application
++        android:label="@string/font_apple_emoji_overlay">
++        <meta-data
++            android:name="android.theme.customization.REQUIRED_SYSTEM_FONTS"
++            android:value="apple-emoji" />
++    </application>
+ </manifest>
+diff --git a/overlay/emoji/FontAppleEmojiOverlay/res/values/strings.xml b/overlay/emoji/FontAppleEmojiOverlay/res/values/strings.xml
+new file mode 100644
+index 0000000..bbe6e99
+--- /dev/null
++++ b/overlay/emoji/FontAppleEmojiOverlay/res/values/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="font_apple_emoji_overlay" translatable="false">Apple iOS</string>
++</resources>
+diff --git a/overlay/emoji/FontFluentEmojiOverlay/Android.bp b/overlay/emoji/FontFluentEmojiOverlay/Android.bp
+index 7adf72a..2fc78b3 100644
+--- a/overlay/emoji/FontFluentEmojiOverlay/Android.bp
++++ b/overlay/emoji/FontFluentEmojiOverlay/Android.bp
+@@ -1,5 +1,6 @@
+ runtime_resource_overlay {
+     name: "FontFluentEmojiOverlay",
++    sdk_version: "current",
+     theme: "FontFluentEmoji",
+     product_specific: true,
+ }
+diff --git a/overlay/emoji/FontFluentEmojiOverlay/AndroidManifest.xml b/overlay/emoji/FontFluentEmojiOverlay/AndroidManifest.xml
+index 6fe7248..0a51a6a 100644
+--- a/overlay/emoji/FontFluentEmojiOverlay/AndroidManifest.xml
++++ b/overlay/emoji/FontFluentEmojiOverlay/AndroidManifest.xml
+@@ -2,7 +2,14 @@
+     package="com.android.theme.font.emoji.fluent"
+     android:versionCode="1"
+     android:versionName="1.0">
+-    <overlay android:targetPackage="android"
+-             android:category="android.theme.customization.font.emoji"
+-             android:priority="1000"/>
++    <overlay
++        android:targetPackage="android"
++        android:category="android.theme.customization.font.emoji"
++        android:priority="1000"/>
++    <application
++        android:label="@string/font_fluent_emoji_overlay">
++        <meta-data
++            android:name="android.theme.customization.REQUIRED_SYSTEM_FONTS"
++            android:value="fluent-emoji" />
++    </application>
+ </manifest>
+diff --git a/overlay/emoji/FontFluentEmojiOverlay/res/values/strings.xml b/overlay/emoji/FontFluentEmojiOverlay/res/values/strings.xml
+new file mode 100644
+index 0000000..fcb7b8d
+--- /dev/null
++++ b/overlay/emoji/FontFluentEmojiOverlay/res/values/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="font_fluent_emoji_overlay" translatable="false">Microsoft Fluent</string>
++</resources>
+diff --git a/overlay/emoji/FontJoyPixelsEmojiOverlay/Android.bp b/overlay/emoji/FontJoyPixelsEmojiOverlay/Android.bp
+index 714cd1f..54032c6 100644
+--- a/overlay/emoji/FontJoyPixelsEmojiOverlay/Android.bp
++++ b/overlay/emoji/FontJoyPixelsEmojiOverlay/Android.bp
+@@ -1,5 +1,6 @@
+ runtime_resource_overlay {
+     name: "FontJoyPixelsEmojiOverlay",
++    sdk_version: "current",
+     theme: "FontJoyPixelsEmoji",
+     product_specific: true,
+ }
+diff --git a/overlay/emoji/FontJoyPixelsEmojiOverlay/AndroidManifest.xml b/overlay/emoji/FontJoyPixelsEmojiOverlay/AndroidManifest.xml
+index 3b73057..27211ba 100644
+--- a/overlay/emoji/FontJoyPixelsEmojiOverlay/AndroidManifest.xml
++++ b/overlay/emoji/FontJoyPixelsEmojiOverlay/AndroidManifest.xml
+@@ -2,7 +2,14 @@
+     package="com.android.theme.font.emoji.joypixels"
+     android:versionCode="1"
+     android:versionName="1.0">
+-    <overlay android:targetPackage="android"
+-             android:category="android.theme.customization.font.emoji"
+-             android:priority="1000"/>
++    <overlay
++        android:targetPackage="android"
++        android:category="android.theme.customization.font.emoji"
++        android:priority="1000"/>
++    <application
++        android:label="@string/font_joypixels_emoji_overlay">
++        <meta-data
++            android:name="android.theme.customization.REQUIRED_SYSTEM_FONTS"
++            android:value="joypixels-emoji" />
++    </application>
+ </manifest>
+diff --git a/overlay/emoji/FontJoyPixelsEmojiOverlay/res/values/strings.xml b/overlay/emoji/FontJoyPixelsEmojiOverlay/res/values/strings.xml
+new file mode 100644
+index 0000000..64a20fd
+--- /dev/null
++++ b/overlay/emoji/FontJoyPixelsEmojiOverlay/res/values/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="font_joypixels_emoji_overlay" translatable="false">JoyPixels</string>
++</resources>
+diff --git a/overlay/emoji/FontSamsungEmojiOverlay/Android.bp b/overlay/emoji/FontSamsungEmojiOverlay/Android.bp
+index 8c598df..aa22f90 100644
+--- a/overlay/emoji/FontSamsungEmojiOverlay/Android.bp
++++ b/overlay/emoji/FontSamsungEmojiOverlay/Android.bp
+@@ -1,5 +1,6 @@
+ runtime_resource_overlay {
+     name: "FontSamsungEmojiOverlay",
++    sdk_version: "current",
+     theme: "FontSamsungEmoji",
+     product_specific: true,
+ }
+diff --git a/overlay/emoji/FontSamsungEmojiOverlay/AndroidManifest.xml b/overlay/emoji/FontSamsungEmojiOverlay/AndroidManifest.xml
+index adbeb42..71b657a 100644
+--- a/overlay/emoji/FontSamsungEmojiOverlay/AndroidManifest.xml
++++ b/overlay/emoji/FontSamsungEmojiOverlay/AndroidManifest.xml
+@@ -2,7 +2,14 @@
+     package="com.android.theme.font.emoji.samsung"
+     android:versionCode="1"
+     android:versionName="1.0">
+-    <overlay android:targetPackage="android"
+-             android:category="android.theme.customization.font.emoji"
+-             android:priority="1000"/>
++    <overlay
++        android:targetPackage="android"
++        android:category="android.theme.customization.font.emoji"
++        android:priority="1000"/>
++    <application
++        android:label="@string/font_samsung_emoji_overlay">
++        <meta-data
++            android:name="android.theme.customization.REQUIRED_SYSTEM_FONTS"
++            android:value="samsung-emoji" />
++    </application>
+ </manifest>
+diff --git a/overlay/emoji/FontSamsungEmojiOverlay/res/values/strings.xml b/overlay/emoji/FontSamsungEmojiOverlay/res/values/strings.xml
+new file mode 100644
+index 0000000..d077947
+--- /dev/null
++++ b/overlay/emoji/FontSamsungEmojiOverlay/res/values/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="font_samsung_emoji_overlay" translatable="false">Samsung OneUI</string>
++</resources>
+diff --git a/overlay/emoji/FontTwemojiOverlay/Android.bp b/overlay/emoji/FontTwemojiOverlay/Android.bp
+index 50a3e32..c1a764c 100644
+--- a/overlay/emoji/FontTwemojiOverlay/Android.bp
++++ b/overlay/emoji/FontTwemojiOverlay/Android.bp
+@@ -1,5 +1,6 @@
+ runtime_resource_overlay {
+     name: "FontTwemojiOverlay",
++    sdk_version: "current",
+     theme: "FontTwemoji",
+     product_specific: true,
+ }
+diff --git a/overlay/emoji/FontTwemojiOverlay/AndroidManifest.xml b/overlay/emoji/FontTwemojiOverlay/AndroidManifest.xml
+index 4862f56..3b15f9d 100644
+--- a/overlay/emoji/FontTwemojiOverlay/AndroidManifest.xml
++++ b/overlay/emoji/FontTwemojiOverlay/AndroidManifest.xml
+@@ -2,7 +2,14 @@
+     package="com.android.theme.font.emoji.twemoji"
+     android:versionCode="1"
+     android:versionName="1.0">
+-    <overlay android:targetPackage="android"
+-             android:category="android.theme.customization.font.emoji"
+-             android:priority="1000"/>
++    <overlay
++        android:targetPackage="android"
++        android:category="android.theme.customization.font.emoji"
++        android:priority="1000"/>
++    <application
++        android:label="@string/font_twemoji_overlay">
++        <meta-data
++            android:name="android.theme.customization.REQUIRED_SYSTEM_FONTS"
++            android:value="twemoji" />
++    </application>
+ </manifest>
+diff --git a/overlay/emoji/FontTwemojiOverlay/res/values/strings.xml b/overlay/emoji/FontTwemojiOverlay/res/values/strings.xml
+new file mode 100644
+index 0000000..5324855
+--- /dev/null
++++ b/overlay/emoji/FontTwemojiOverlay/res/values/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="font_twemoji_overlay" translatable="false">Twitter / Twemoji</string>
++</resources>
+-- 
+2.43.0
+
