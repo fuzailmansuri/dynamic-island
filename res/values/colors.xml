@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dynamic Island Pure OLED Black -->
+    <color name="ax_dynamic_bar_bg">#FF000000</color>
+    
+    <!-- Privacy Glow Rings -->
+    <color name="ax_dynamic_bar_glow_camera">#10B981</color>       <!-- Emerald -->
+    <color name="ax_dynamic_bar_glow_mic">#F59E0B</color>          <!-- Amber -->
+    <color name="ax_dynamic_bar_glow_recording">#F43F5E</color>    <!-- Coral/Rose -->
+</resources>
