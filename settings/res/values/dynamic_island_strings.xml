@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dynamic_island_title">Dynamic Island</string>
+    <string name="dynamic_island_enabled_title">Enable Dynamic Island</string>
+    <string name="dynamic_island_enabled_summary">Show fluid interactive island for media, notifications, timers, calls, and hardware telemetry</string>
+    <string name="dynamic_island_cutout_category_title">Cutout Adaptability</string>
+    <string name="dynamic_island_cutout_type_title">Camera Cutout Position</string>
+    <string name="dynamic_island_width_title">Island Width Offset</string>
+    <string name="dynamic_island_height_title">Island Height Offset</string>
+    <string name="dynamic_island_offset_x_title">Horizontal Position Offset</string>
+    <string name="dynamic_island_offset_y_title">Vertical Position Offset</string>
+    <string name="dynamic_island_events_category_title">Active Events</string>
+    <string name="dynamic_island_event_media_title">Media playback &amp; waveform</string>
+    <string name="dynamic_island_event_call_title">Ongoing and incoming calls</string>
+    <string name="dynamic_island_event_battery_title">Charging and battery telemetry</string>
+    <string name="dynamic_island_event_timer_title">Timers and stopwatches</string>
+    <string name="dynamic_island_event_torch_title">Flashlight indicator</string>
+    <string name="dynamic_island_event_notification_title">Heads-up notifications</string>
+    <string name="dynamic_island_event_biometrics_title">Face and fingerprint unlock</string>
+</resources>

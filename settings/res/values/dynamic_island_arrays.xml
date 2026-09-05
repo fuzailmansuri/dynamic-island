@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="dynamic_island_cutout_type_entries">
+        <item>Center Punch-Hole</item>
+        <item>Left Corner</item>
+        <item>Right Corner</item>
+    </string-array>
+    <string-array name="dynamic_island_cutout_type_values">
+        <item>center</item>
+        <item>left</item>
+        <item>right</item>
+    </string-array>
+</resources>
