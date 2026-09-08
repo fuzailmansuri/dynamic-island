@@ -95,13 +95,19 @@ See [docs/SETTINGS_KEYS.md](docs/SETTINGS_KEYS.md) for the complete dictionary.
 
 ---
 
-## 📜 Credits & Provenance
+## 📜 Credits & Acknowledgements
 
-- **Original Foundation**: [AxionAOSP](https://github.com/AxionAOSP) (`axdynamicbar`)
-- **Refinements & Architecture**: [Fuzail Mansuri](https://github.com/fuzailmansuri)
-- **Target Platform**: [Yet Another AOSP Project (YAAP)](https://github.com/yaap) & Nothing Phone (3a) / (2a) (`asteroids`)
+Special thanks and attribution to the following projects and creators:
+
+- **[AxionAOSP](https://github.com/AxionAOSP)**: For the original `axdynamicbar` concept and foundational implementation.
+- **[Apple Inc.](https://www.apple.com)**: For the original Dynamic Island UI/UX interaction paradigm and animation concepts.
+- **[YAAP (Yet Another AOSP Project)](https://github.com/yaap)**: For the Android 17 (CP2A) platform base, SystemUI status bar composable tree, and integration testing on Nothing Phone (3a) (`asteroids`).
+- **[LineageOS](https://github.com/LineageOS)**: For AOSP platform standard practices and sepolicy conventions.
+- **[Google / Android Open Source Project (AOSP)](https://source.android.com)**: For Jetpack Compose, Material 3 Expressive tokens, and SystemUI architecture.
+- **Architecture, Porting & Refinements**: [Fuzail Mansuri](https://github.com/fuzailmansuri)
 
 ---
 
 ## 📄 License
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
