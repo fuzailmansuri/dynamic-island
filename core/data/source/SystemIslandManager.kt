@@ -2,6 +2,7 @@ package com.android.systemui.axdynamicbar.data.source
 
 import android.content.BroadcastReceiver
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -52,6 +53,7 @@ constructor(
         private const val MAX_CLIPBOARD_HISTORY = 10
         private const val PREFS_NAME = "ax_dynamic_bar_prefs"
         private const val KEY_CLIPBOARD_STASH = "clipboard_stash"
+        private const val KEY_CLIPBOARD_HISTORY_MIGRATED = "clipboard_history_migrated"
         private const val CLIPBOARD_CACHE_DIR = "clipboard_cache"
         private const val FILE_PROVIDER_AUTHORITY = "com.android.systemui.fileprovider"
     }
@@ -92,6 +94,7 @@ constructor(
     }
 
     private var persistJob: Job? = null
+    @Volatile private var clipboardGeneration = 0L
 
     private val ringerReceiver =
         object : BroadcastReceiver() {
@@ -126,8 +129,13 @@ constructor(
                 } catch (_: Exception) {
                     null
                 } ?: return@OnPrimaryClipChangedListener
-            val item = clip.getItemAt(0) ?: return@OnPrimaryClipChangedListener
             val desc = clip.description
+            if (desc.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false) == true) {
+                clearClipboard()
+                return@OnPrimaryClipChangedListener
+            }
+            val item = clip.getItemAt(0) ?: return@OnPrimaryClipChangedListener
+            val generation = clipboardGeneration
 
             val rawText =
                 try {
@@ -156,16 +164,22 @@ constructor(
                 if (isImage && sourceUri != null) {
                     applicationScope.launch(backgroundDispatcher) {
                         val cachedUri = cacheClipboardImage(sourceUri, itemId)
-                        val (event, items) = buildClipboardEvent(
-                            itemId, preview, label, isUrl, true, cachedUri)
-                        _clipboardEvent.value = event
-                        mainHandler.post { onClipboardCopied?.invoke(event) }
+                        if (!commitClipboardEvent(
+                                itemId,
+                                preview,
+                                label,
+                                isUrl,
+                                true,
+                                cachedUri,
+                                generation,
+                                callbackOnMainThread = true,
+                            )
+                        ) {
+                            cleanupCachedImage(itemId)
+                        }
                     }
                 } else {
-                    val (event, _) = buildClipboardEvent(
-                        itemId, preview, label, isUrl, false, null)
-                    _clipboardEvent.value = event
-                    onClipboardCopied?.invoke(event)
+                    commitClipboardEvent(itemId, preview, label, isUrl, false, null)
                 }
             }
         }
@@ -188,14 +202,16 @@ constructor(
         }
     }
 
-    private fun buildClipboardEvent(
+    private fun commitClipboardEvent(
         itemId: Long,
         preview: String,
         label: String,
         isUrl: Boolean,
         isImage: Boolean,
         imageUri: Uri?,
-    ): Pair<IslandEvent.Clipboard, List<IslandEvent.ClipboardItem>> {
+        generation: Long? = null,
+        callbackOnMainThread: Boolean = false,
+    ): Boolean {
         val clipItem =
             IslandEvent.ClipboardItem(
                 id = itemId,
@@ -206,28 +222,40 @@ constructor(
                 imageUri = imageUri,
                 timestamp = itemId,
             )
-        val items: List<IslandEvent.ClipboardItem>
         synchronized(clipboardHistory) {
+            if (generation != null && generation != clipboardGeneration) return false
             clipboardHistory.removeAll { it.preview == preview && !isImage }
             clipboardHistory.add(0, clipItem)
             while (clipboardHistory.size > MAX_CLIPBOARD_HISTORY) {
                 val removed = clipboardHistory.removeLast()
                 cleanupCachedImage(removed.id)
             }
-            items = clipboardHistory.toList()
+            val items = clipboardHistory.toList()
+            val event =
+                IslandEvent.Clipboard(
+                    label = label,
+                    preview = preview,
+                    isUrl = isUrl,
+                    isImage = isImage,
+                    imageUri = imageUri,
+                    items = items,
+                )
+            val eventGeneration = clipboardGeneration
+            persistClipboardHistory(items, eventGeneration)
+            _clipboardEvent.value = event
+            if (callbackOnMainThread) {
+                mainHandler.post {
+                    synchronized(clipboardHistory) {
+                        if (eventGeneration == clipboardGeneration) {
+                            onClipboardCopied?.invoke(event)
+                        }
+                    }
+                }
+            } else {
+                onClipboardCopied?.invoke(event)
+            }
         }
-        persistClipboardHistory()
-
-        val event =
-            IslandEvent.Clipboard(
-                label = label,
-                preview = preview,
-                isUrl = isUrl,
-                isImage = isImage,
-                imageUri = imageUri,
-                items = items,
-            )
-        return event to items
+        return true
     }
 
     private fun cleanupCachedImage(itemId: Long) {
@@ -344,6 +372,7 @@ constructor(
     fun startClipboard() {
         if (clipboardListening) return
         clipboardListening = true
+        migrateClipboardHistory()
         loadClipboardHistory()
         clipboardManager.addPrimaryClipChangedListener(clipboardListener)
     }
@@ -398,12 +427,15 @@ constructor(
     }
 
     fun clearClipboard() {
-        _clipboardEvent.value = null
+        persistJob?.cancel()
         synchronized(clipboardHistory) {
+            clipboardGeneration++
+            _clipboardEvent.value = null
             clipboardHistory.forEach { cleanupCachedImage(it.id) }
             clipboardHistory.clear()
+            clipboardCacheDir.listFiles()?.forEach { it.delete() }
+            prefs.edit().remove(KEY_CLIPBOARD_STASH).apply()
         }
-        persistClipboardHistory()
     }
 
     fun clearCharging() {
@@ -429,8 +461,8 @@ constructor(
                         items = clipboardHistory.toList(),
                     )
                 }
+            persistClipboardHistory(clipboardHistory.toList(), clipboardGeneration)
         }
-        persistClipboardHistory()
         _clipboardEvent.value = event
     }
 
@@ -465,30 +497,42 @@ constructor(
         }
     }
 
-    private fun persistClipboardHistory() {
+    private fun persistClipboardHistory(
+        history: List<IslandEvent.ClipboardItem>,
+        generation: Long,
+    ) {
         persistJob?.cancel()
         persistJob = applicationScope.launch(backgroundDispatcher) {
             try {
                 val arr = JSONArray()
+                history.forEach { item ->
+                    arr.put(
+                        JSONObject().apply {
+                            put("id", item.id)
+                            put("preview", item.preview)
+                            put("label", item.label)
+                            put("isUrl", item.isUrl)
+                            put("isImage", item.isImage)
+                            put("imageUri", item.imageUri?.toString() ?: "")
+                            put("ts", item.timestamp)
+                        }
+                    )
+                }
                 synchronized(clipboardHistory) {
-                    clipboardHistory.forEach { item ->
-                        arr.put(
-                            JSONObject().apply {
-                                put("id", item.id)
-                                put("preview", item.preview)
-                                put("label", item.label)
-                                put("isUrl", item.isUrl)
-                                put("isImage", item.isImage)
-                                put("imageUri", item.imageUri?.toString() ?: "")
-                                put("ts", item.timestamp)
-                            }
-                        )
+                    if (generation == clipboardGeneration) {
+                        prefs.edit().putString(KEY_CLIPBOARD_STASH, arr.toString()).apply()
                     }
                 }
-                prefs.edit().putString(KEY_CLIPBOARD_STASH, arr.toString()).apply()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to persist clipboard history", e)
             }
+        }
+    }
+
+    private fun migrateClipboardHistory() {
+        if (!prefs.getBoolean(KEY_CLIPBOARD_HISTORY_MIGRATED, false)) {
+            clearClipboard()
+            prefs.edit().putBoolean(KEY_CLIPBOARD_HISTORY_MIGRATED, true).apply()
         }
     }
 

@@ -54,6 +54,7 @@ import com.android.systemui.axdynamicbar.shared.IslandActions
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.res.R
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 internal fun TimerExpanded(event: IslandEvent.Timer, interactor: IslandActions) {
@@ -61,7 +62,7 @@ internal fun TimerExpanded(event: IslandEvent.Timer, interactor: IslandActions) 
     val style = eventStyleFor(event)
     val totalMs = event.originalDurationMs.takeIf { it > 0L } ?: 1L
     var remainingMs by
-        remember(event.endTimeMs) {
+        remember(event.id, event.endTimeMs, event.isPaused) {
             mutableLongStateOf(
                 if (event.endTimeMs > 0L)
                     (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
@@ -69,9 +70,9 @@ internal fun TimerExpanded(event: IslandEvent.Timer, interactor: IslandActions) 
             )
         }
     if (!event.isPaused) {
-        LaunchedEffect(event.endTimeMs) {
+        LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
             if (event.endTimeMs > 0L) {
-                while (remainingMs > 0L) {
+                while (isActive && remainingMs > 0L) {
                     delay(500)
                     remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
                 }
@@ -161,13 +162,13 @@ internal fun StopwatchExpanded(event: IslandEvent.Stopwatch, interactor: IslandA
     val context = LocalContext.current
     val style = eventStyleFor(event)
     var elapsedMs by
-        remember(event.startTimeMs) {
+        remember(event.id, event.startTimeMs, event.isRunning) {
             mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
         }
     if (event.isRunning) {
-        LaunchedEffect(event.startTimeMs) {
-            while (true) {
-                delay(100)
+        LaunchedEffect(event.id, event.startTimeMs, event.isRunning) {
+            while (isActive && event.isRunning) {
+                delay(1000)
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
             }
         }
@@ -223,7 +224,7 @@ internal fun StopwatchExpanded(event: IslandEvent.Stopwatch, interactor: IslandA
 @Composable
 internal fun RowScope.CompactTimerRow(event: IslandEvent.Timer) {
     var remainingMs by
-        remember(event.endTimeMs) {
+        remember(event.id, event.endTimeMs, event.isPaused) {
             mutableLongStateOf(
                 if (event.endTimeMs > 0L)
                     (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
@@ -231,9 +232,9 @@ internal fun RowScope.CompactTimerRow(event: IslandEvent.Timer) {
             )
         }
     if (!event.isPaused) {
-        LaunchedEffect(event.endTimeMs) {
+        LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
             if (event.endTimeMs > 0L) {
-                while (remainingMs > 0L) {
+                while (isActive && remainingMs > 0L) {
                     delay(500)
                     remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
                 }
@@ -273,13 +274,13 @@ internal fun RowScope.CompactTimerRow(event: IslandEvent.Timer) {
 @Composable
 internal fun RowScope.CompactStopwatchRow(event: IslandEvent.Stopwatch) {
     var elapsedMs by
-        remember(event.startTimeMs) {
+        remember(event.id, event.startTimeMs, event.isRunning) {
             mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
         }
     if (event.isRunning) {
-        LaunchedEffect(event.startTimeMs) {
-            while (true) {
-                delay(200)
+        LaunchedEffect(event.id, event.startTimeMs, event.isRunning) {
+            while (isActive && event.isRunning) {
+                delay(1000)
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
             }
         }

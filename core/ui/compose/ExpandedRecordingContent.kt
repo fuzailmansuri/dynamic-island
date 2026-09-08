@@ -40,6 +40,7 @@ import com.android.systemui.res.R
 import androidx.compose.ui.platform.LocalContext
 import com.android.systemui.axdynamicbar.shared.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 internal fun AudioRecordingExpanded(
@@ -55,9 +56,12 @@ internal fun AudioRecordingExpanded(
             (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs).coerceAtLeast(0L)
         )
     }
-    LaunchedEffect(event.startTimeMs, event.state, event.pausedDurationMs) {
+    LaunchedEffect(event.id, event.startTimeMs, event.state, event.pausedDurationMs) {
+        elapsedMs =
+            (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
+                .coerceAtLeast(0L)
         if (event.state == RecordingState.RECORDING) {
-            while (true) {
+            while (isActive && event.state == RecordingState.RECORDING) {
                 delay(1000)
                 elapsedMs =
                     (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
@@ -146,9 +150,12 @@ internal fun RowScope.CompactAudioRecordingRow(event: IslandEvent.AudioRecording
             (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs).coerceAtLeast(0L)
         )
     }
-    LaunchedEffect(event.startTimeMs, event.state, event.pausedDurationMs) {
+    LaunchedEffect(event.id, event.startTimeMs, event.state, event.pausedDurationMs) {
+        elapsedMs =
+            (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
+                .coerceAtLeast(0L)
         if (event.state == RecordingState.RECORDING) {
-            while (true) {
+            while (isActive && event.state == RecordingState.RECORDING) {
                 delay(1000)
                 elapsedMs =
                     (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)

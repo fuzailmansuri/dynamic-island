@@ -40,6 +40,7 @@ constructor(
         private const val TAG = "IslandEventRepository"
     }
 
+    private val listenerLifecycleLock = Any()
     @Volatile private var listenersStarted = false
 
     private val _indicationEvents =
@@ -63,26 +64,15 @@ constructor(
 
     private fun isTypeEnabled(typeId: String): Boolean = typeId !in disabled
 
-    fun startListening() {
+    fun startListening() = synchronized(listenerLifecycleLock) {
         if (listenersStarted) return
         listenersStarted = true
         Log.d(TAG, "Starting event listeners")
-        syncDisabledTypes()
-        if (isTypeEnabled("media")) media.startListening()
-        if (isTypeEnabled("bluetooth")) connectivity.startBluetooth()
-        if (isTypeEnabled("hotspot")) connectivity.startHotspot()
-        if (isTypeEnabled("vpn")) connectivity.startVpn()
-        if (isTypeEnabled("charging")) system.startCharging()
-        if (isTypeEnabled("ringer")) system.startRinger()
-        if (isTypeEnabled("clipboard")) system.startClipboard()
+        refreshListenersLocked()
         notification.startListening()
-        if (isTypeEnabled("app_switch")) appTracking.startListening()
-        if (isTypeEnabled("torch")) torch.startListening()
-        if (isTypeEnabled("biometric_unlock")) biometric.startListening()
-        if (isTypeEnabled("media") || isTypeEnabled("sports")) smartspace.startListening()
     }
 
-    fun stopListening() {
+    fun stopListening() = synchronized(listenerLifecycleLock) {
         if (!listenersStarted) return
         listenersStarted = false
         Log.d(TAG, "Stopping event listeners")
@@ -96,40 +86,30 @@ constructor(
         smartspace.stopListening()
     }
 
-    fun refreshListeners() {
+    fun refreshListeners() = synchronized(listenerLifecycleLock) {
         if (!listenersStarted) return
-        syncDisabledTypes()
-
-        if (isTypeEnabled("media")) media.startListening()
-        else media.stopListening()
-
-        if (isTypeEnabled("bluetooth")) connectivity.startBluetooth()
-        else connectivity.stopBluetooth()
-        if (isTypeEnabled("hotspot")) connectivity.startHotspot()
-        else connectivity.stopHotspot()
-        if (isTypeEnabled("vpn")) connectivity.startVpn()
-        else connectivity.stopVpn()
-
-        if (isTypeEnabled("charging")) system.startCharging()
-        else system.stopCharging()
-        if (isTypeEnabled("ringer")) system.startRinger()
-        else system.stopRinger()
-        if (isTypeEnabled("clipboard")) system.startClipboard()
-        else system.stopClipboard()
-
-        if (isTypeEnabled("app_switch")) appTracking.startListening()
-        else appTracking.stopListening()
-        if (isTypeEnabled("torch")) torch.startListening()
-        else torch.stopListening()
-        if (isTypeEnabled("biometric_unlock")) biometric.startListening()
-        else biometric.stopListening()
-
-        if (isTypeEnabled("media") || isTypeEnabled("sports")) smartspace.startListening()
-        else smartspace.stopListening()
+        refreshListenersLocked()
     }
 
-    private fun syncDisabledTypes() {
-        notification.disabledTypes = disabled
+    private fun refreshListenersLocked() {
+        val disabledTypes = disabled
+        notification.disabledTypes = disabledTypes
+
+        if ("media" !in disabledTypes) media.startListening() else media.stopListening()
+        if ("bluetooth" !in disabledTypes) connectivity.startBluetooth() else connectivity.stopBluetooth()
+        if ("hotspot" !in disabledTypes) connectivity.startHotspot() else connectivity.stopHotspot()
+        if ("vpn" !in disabledTypes) connectivity.startVpn() else connectivity.stopVpn()
+        if ("charging" !in disabledTypes) system.startCharging() else system.stopCharging()
+        if ("ringer" !in disabledTypes) system.startRinger() else system.stopRinger()
+        if ("clipboard" !in disabledTypes) system.startClipboard() else system.stopClipboard()
+        if ("app_switch" !in disabledTypes) appTracking.startListening() else appTracking.stopListening()
+        if ("torch" !in disabledTypes) torch.startListening() else torch.stopListening()
+        if ("biometric_unlock" !in disabledTypes) biometric.startListening() else biometric.stopListening()
+        if ("media" !in disabledTypes || "sports" !in disabledTypes) {
+            smartspace.startListening()
+        } else {
+            smartspace.stopListening()
+        }
     }
 
     private fun buildEventsFlow(): Flow<List<IslandEvent>> {
@@ -208,14 +188,25 @@ constructor(
 
         val indicationGroup = _indicationEvents.map { it.values.toList() }
 
+        val notificationGroup = notification.notificationEvents.map { notifs ->
+            if (isTypeEnabled("notification")) notifs else emptyList()
+        }
+
+        val otherGroup = combine(
+            notificationGroup,
+            indicationGroup,
+            aospChip.aospChipEvents,
+        ) { notifications, indication, aosp ->
+            notifications + indication + aosp
+        }
+
         val allEvents = combine(
             highGroup,
             transientGroup,
             promotedGroup,
-            indicationGroup,
-            aospChip.aospChipEvents,
-        ) { high, transient, promoted, indication, aosp ->
-            high + transient + promoted + indication + aosp
+            otherGroup,
+        ) { high, transient, promoted, other ->
+            high + transient + promoted + other
         }
 
         return allEvents.map { events ->

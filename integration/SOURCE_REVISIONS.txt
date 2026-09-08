@@ -1,0 +1,3 @@
+Source tree: /home/azureuser/android/yaap
+frameworks/base HEAD: 9453862166846a0ac0a77587a88663c256df9a20
+packages/apps/Settings HEAD: c0b80d123a319189c479ed12edb07df8b67831b5

@@ -3,15 +3,19 @@
 package com.android.systemui.axdynamicbar.shared
 
 import android.app.ActivityOptions
+import android.os.SystemClock
 import com.android.systemui.res.R
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Drawable
 import androidx.core.graphics.ColorUtils
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,11 +35,14 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,9 +63,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.palette.graphics.Palette
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import androidx.compose.material3.Icon
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 
 internal val SpaceXxs = 2.dp
 internal val SpaceXs = 4.dp
@@ -248,6 +257,25 @@ internal fun rememberMediaColors(event: IslandEvent.Media): IslandColorScheme {
     return buildColorScheme(raw)
 }
 
+internal fun compactMediaWaveColor(event: IslandEvent.Media): Color {
+    val fallback = Color(0xFF8A8A8E)
+    if (event.mediaColor == 0) return fallback
+
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(event.mediaColor, hsl)
+    val isPurpleOrIndigo = hsl[0] in 240f..325f
+    if (hsl[1] !in 0.12f..0.55f || isPurpleOrIndigo) return fallback
+
+    hsl[1] = hsl[1].coerceIn(0.16f, 0.30f)
+    hsl[2] = hsl[2].coerceIn(0.45f, 0.58f)
+    val waveColor = Color(ColorUtils.HSLToColor(hsl))
+    return if (ColorUtils.calculateContrast(waveColor.toArgb(), CardBg.toArgb()) >= 3.0) {
+        waveColor
+    } else {
+        fallback
+    }
+}
+
 @Composable
 private fun buildColorScheme(raw: Color): IslandColorScheme {
     val isDark = ColorUtils.calculateLuminance(
@@ -321,8 +349,10 @@ private fun rememberPaletteColor(drawable: Drawable): Color? {
 internal fun StatusChip(text: String, color: Color = SubtleGray) {
     Box(
         modifier =
-            Modifier.background(color.copy(alpha = AlphaSubtle), ShapeChip)
-                .padding(horizontal = SpaceXl, vertical = SpaceSm)
+            Modifier.clip(ShapeChip)
+                .background(color.copy(alpha = AlphaStatusChip))
+                .border(1.dp, color.copy(alpha = 0.22f), ShapeChip)
+                .padding(horizontal = SpaceLg, vertical = SpaceXs)
     ) {
         Text(text, color = color, style = MaterialTheme.typography.labelSmall)
     }
@@ -402,17 +432,18 @@ internal fun ActionChip(
         onClick = onClick,
         shape = ShapeChip,
         color = bg,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.18f)),
         modifier = modifier,
     ) {
         Row(
-            modifier = Modifier.height(SizeActionHeight).padding(horizontal = SpacePanel),
+            modifier = Modifier.height(SizeActionHeight).padding(horizontal = SpaceLg),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(SpaceMd, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(SpaceSm, Alignment.CenterHorizontally),
         ) {
             if (icon != null) {
                 Icon(icon, null, tint = color, modifier = Modifier.size(SizeIconSm))
             }
-            Text(label, color = color, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Text(label, color = color, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -451,7 +482,41 @@ internal data class MediaProgress(val progress: Float, val positionMs: Long)
 
 @Composable
 internal fun rememberMediaProgress(event: IslandEvent.Media): MediaProgress {
-    return MediaProgress(event.progress, event.position)
+    val duration = event.duration.coerceAtLeast(0L)
+    var positionMs by remember(
+        event.id,
+        event.position,
+        event.positionUpdateTime,
+        event.playbackSpeed,
+        duration,
+        event.isPlaying,
+    ) {
+        mutableLongStateOf(event.position.coerceIn(0L, duration))
+    }
+
+    LaunchedEffect(
+        event.id,
+        event.position,
+        event.positionUpdateTime,
+        event.playbackSpeed,
+        duration,
+        event.isPlaying,
+    ) {
+        if (!event.isPlaying || duration <= 0L) return@LaunchedEffect
+        while (isActive && positionMs < duration) {
+            positionMs =
+                (event.position +
+                    ((SystemClock.elapsedRealtime() - event.positionUpdateTime).coerceAtLeast(0L) *
+                        event.playbackSpeed).toLong())
+                    .coerceIn(0L, duration)
+            delay(250)
+        }
+    }
+
+    val progress =
+        if (duration > 0L) (positionMs.toFloat() / duration).coerceIn(0f, 1f)
+        else event.progress
+    return MediaProgress(progress, positionMs)
 }
 
 internal fun formatElapsedTime(ms: Long): String {
@@ -569,9 +634,13 @@ internal fun CustomActionIcon(
 }
 
 internal fun PendingIntent.sendWithBal(context: Context, fillIntent: Intent? = null) {
-    val options = ActivityOptions.makeBasic()
-    options.setPendingIntentBackgroundActivityStartMode(
-        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-    )
-    send(context, 0, fillIntent, null, null, null, options.toBundle())
+    try {
+        val options = ActivityOptions.makeBasic()
+        options.setPendingIntentBackgroundActivityStartMode(
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        )
+        send(context, 0, fillIntent, null, null, null, options.toBundle())
+    } catch (e: Exception) {
+        android.util.Log.w("IslandContentTokens", "Failed to send PendingIntent", e)
+    }
 }

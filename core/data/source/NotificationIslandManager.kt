@@ -18,6 +18,7 @@ import com.android.systemui.axdynamicbar.model.RecordingState
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.util.ScrimUtils
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -123,13 +124,16 @@ constructor(
 
     var activeMediaPackageProvider: (() -> String?)? = null
 
-    private val seenNotificationKeys = mutableSetOf<String>()
-    private val seenMessagingTimestamps = mutableMapOf<String, Long>()
+    private val seenNotificationKeys = ConcurrentHashMap.newKeySet<String>()
+    private val seenMessagingTimestamps = ConcurrentHashMap<String, Long>()
 
     var onTimerEvent: ((IslandEvent.Timer) -> Unit)? = null
     var onAlarmEvent: ((IslandEvent.Alarm) -> Unit)? = null
     var onNotificationPosted: ((IslandEvent.Notification) -> Unit)? = null
 
+    private val stateLock = Any()
+    @Volatile private var listenerGeneration = 0L
+    @Volatile private var timerGeneration = 0L
     @Volatile private var listening = false
     @Volatile private var timerJob: Job? = null
 
@@ -140,11 +144,15 @@ constructor(
     private val scrimListener =
         object : ScrimUtils.ScrimEventListener {
             override fun onNotificationRemoved(sbn: StatusBarNotification) {
-                val pkg = sbn.packageName ?: return
+                val generation = listenerGeneration
+                applicationScope.launch {
+                    synchronized(stateLock) {
+                        if (!listening || generation != listenerGeneration) return@launch
                 seenNotificationKeys.remove(sbn.key)
                 seenMessagingTimestamps.remove(sbn.key)
 
                 if (sbn.key == timerNotificationKey) {
+                    timerGeneration++
                     timerNotificationKey = null
                     timerJob?.cancel()
                     timerJob = null
@@ -180,9 +188,21 @@ constructor(
                     _notificationEvents.value.filter { it.sbn.key != sbn.key }
 
                 notificationRemovedFlow.tryEmit(sbn.key)
+                    }
+                }
             }
 
             override fun onNotificationPosted(sbn: StatusBarNotification) {
+                val generation = listenerGeneration
+                applicationScope.launch {
+                    synchronized(stateLock) {
+                        if (!listening || generation != listenerGeneration) return@launch
+                        processNotificationPosted(sbn)
+                    }
+                }
+            }
+
+            private fun processNotificationPosted(sbn: StatusBarNotification) {
                 val pkg = sbn.packageName ?: return
                 val extras = sbn.notification?.extras ?: return
 
@@ -457,24 +477,29 @@ constructor(
                         actions = actions,
                         groupKey = groupKey,
                     )
-                applicationScope.launch { notificationFlow.emit(event) }
+                coalesceNotification(event)
+                notificationFlow.tryEmit(event)
                 onNotificationPosted?.invoke(event)
             }
         }
 
-    fun startListening() {
+    fun startListening() = synchronized(stateLock) {
         if (listening) return
+        listenerGeneration++
+        timerGeneration++
         listening = true
         ScrimUtils.get().addListener(scrimListener)
     }
 
-    fun stopListening() {
+    fun stopListening() = synchronized(stateLock) {
         if (!listening) return
         listening = false
+        listenerGeneration++
         ScrimUtils.get().removeListener(scrimListener)
         seenNotificationKeys.clear()
         seenMessagingTimestamps.clear()
         timerJob?.cancel()
+        timerGeneration++
         timerJob = null
         _timerEvent.value = null
         _stopwatchEvent.value = null
@@ -490,7 +515,7 @@ constructor(
         accumulatedPauseMs = 0L
     }
 
-    fun clearAudioRecording() {
+    fun clearAudioRecording() = synchronized(stateLock) {
         _audioRecordingEvent.value = null
         recorderPackage = null
         recorderNotifKey = null
@@ -498,27 +523,30 @@ constructor(
         accumulatedPauseMs = 0L
     }
 
-    fun dismissNotification(event: IslandEvent.Notification) {
+    fun dismissNotification(event: IslandEvent.Notification) = synchronized(stateLock) {
         _notificationEvents.value = _notificationEvents.value.filter { it.id != event.id }
     }
 
-    fun coalesceNotification(event: IslandEvent.Notification) {
+    fun coalesceNotification(event: IslandEvent.Notification) = synchronized(stateLock) {
         val current = _notificationEvents.value.toMutableList()
         current.removeAll { it.id == event.id }
         current.add(0, event)
         _notificationEvents.value = current
     }
 
-    fun clearTimer() {
+    fun clearTimer() = synchronized(stateLock) {
+        timerGeneration++
+        timerJob?.cancel()
+        timerJob = null
         _timerEvent.value = null
         timerOriginalDurationMs = 0L
     }
 
-    fun clearStopwatch() {
+    fun clearStopwatch() = synchronized(stateLock) {
         _stopwatchEvent.value = null
     }
 
-    fun clearAlarm() {
+    fun clearAlarm() = synchronized(stateLock) {
         _alarmEvent.value = null
     }
 
@@ -587,13 +615,18 @@ constructor(
         _timerEvent.value = event
         onTimerEvent?.invoke(event)
 
+        val timerGeneration = ++this.timerGeneration
         timerJob?.cancel()
         if (endTimeMs > 0L && !isPaused) {
             val remainingMs = endTimeMs - System.currentTimeMillis()
             timerJob =
                 applicationScope.launch {
                     delay((remainingMs + 3_000L).coerceAtLeast(3_000L))
-                    _timerEvent.value = null
+                    synchronized(stateLock) {
+                        if (listening && timerGeneration == this@NotificationIslandManager.timerGeneration) {
+                            _timerEvent.value = null
+                        }
+                    }
                 }
         }
     }
@@ -810,15 +843,15 @@ constructor(
         _promotedOngoingEvents.value = current
     }
 
-    fun clearPromotedOngoing(key: String) {
+    fun clearPromotedOngoing(key: String) = synchronized(stateLock) {
         _promotedOngoingEvents.value = _promotedOngoingEvents.value.filter { it.sbn.key != key }
     }
 
-    fun clearSportsEvent(key: String) {
+    fun clearSportsEvent(key: String) = synchronized(stateLock) {
         _sportsEvents.value = _sportsEvents.value.filter { it.key != key }
     }
 
-    fun clearNowPlaying() {
+    fun clearNowPlaying() = synchronized(stateLock) {
         _nowPlayingEvent.value = null
     }
 
@@ -973,4 +1006,3 @@ constructor(
             }
     }
 }
-

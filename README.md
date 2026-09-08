@@ -41,7 +41,7 @@ dynamic-island/
 │   ├── shared/          # Mathematical formatters, action triggers, physics tokens
 │   └── ui/              # Complete Jetpack Compose UI engine & SceneTransitions
 ├── res/                 # Comprehensive string localization, colors, and IDs
-├── settings/            # AOSP Settings dashboard XMLs, seekbars, and controllers
+├── integration/         # Current AOSP/Settings/device integration snapshots
 └── docs/                # Architecture specifications & Integration manuals
 ```
 
@@ -57,6 +57,10 @@ To integrate this module into your custom AOSP ROM:
    ```bash
    cp -r core/* <rom_root>/frameworks/base/packages/SystemUI/src/com/android/systemui/axdynamicbar/
    cp res/values/* <rom_root>/frameworks/base/packages/SystemUI/res/values/
+
+# Current Settings integration
+cp integration/settings/res/xml/dynamic_island_settings.xml <rom_root>/packages/apps/Settings/res/xml/
+cp integration/settings/src/com/android/settings/system/DynamicIslandSettings.java <rom_root>/packages/apps/Settings/src/com/android/settings/system/
    ```
 
 2. **Register Dagger Module**:

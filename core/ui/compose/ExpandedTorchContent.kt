@@ -81,7 +81,7 @@ internal fun TorchExpanded(
                 size = SizeButton,
                 onClick = { interactor.dismissEvent(event) },
             ) {
-                Icon(Icons.Filled.FlashlightOff, null, tint = RedAccent, modifier = Modifier.size(22.dp))
+                Icon(Icons.Filled.FlashlightOff, stringResource(R.string.ax_dynamic_bar_dismiss), tint = RedAccent, modifier = Modifier.size(22.dp))
             }
         },
         actions = if (event.supportsLevel) {

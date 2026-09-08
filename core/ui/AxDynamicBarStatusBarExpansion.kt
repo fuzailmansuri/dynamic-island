@@ -23,6 +23,7 @@ import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +39,7 @@ import kotlinx.coroutines.flow.stateIn
 class AxDynamicBarStatusBarExpansion
 @Inject
 constructor(
-    @Application applicationScope: CoroutineScope,
+    @Application private val applicationScope: CoroutineScope,
     private val interactor: AxDynamicBarInteractor,
 ) {
     private val _intent = MutableStateFlow(false)
@@ -74,16 +75,33 @@ constructor(
             .distinctUntilChanged()
             .onEach { if (it) collapse() }
             .launchIn(applicationScope)
+
+        interactor.isDozing
+            .onEach { if (it) collapse() }
+            .launchIn(applicationScope)
     }
+
+    private var collapseTimeoutJob: kotlinx.coroutines.Job? = null
 
     fun expand(source: Expandable? = null) {
         val state = interactor.uiState.value
         if (state.events.isEmpty() || state.events.all { it is IslandEvent.AospChip }) return
         _expandable.value = source
         _intent.value = true
+
+        collapseTimeoutJob?.cancel()
+        val timeoutSec = interactor.settings.collapseTimeout.value
+        if (timeoutSec > 0) {
+            collapseTimeoutJob = applicationScope.launch {
+                kotlinx.coroutines.delay(timeoutSec * 1000L)
+                collapse()
+            }
+        }
     }
 
     fun collapse() {
+        collapseTimeoutJob?.cancel()
+        collapseTimeoutJob = null
         _intent.value = false
         _expandable.value = null
     }

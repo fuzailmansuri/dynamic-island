@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="ax_dynamic_bar_chip_height">28dp</dimen>
+    <dimen name="ax_dynamic_bar_chip_min_width">64dp</dimen>
+    <dimen name="ax_dynamic_bar_chip_max_width">180dp</dimen>
+    <dimen name="ax_dynamic_bar_cutout_deadzone_width">28dp</dimen>
+</resources>

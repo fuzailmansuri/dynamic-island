@@ -18,6 +18,7 @@ package com.android.systemui.axdynamicbar.domain
 
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.statusbar.chips.ui.model.MultipleOngoingActivityChipsModel
+import com.android.systemui.statusbar.chips.ui.model.OngoingActivityChipModel
 import com.android.systemui.statusbar.chips.ui.viewmodel.OngoingActivityChipsRefiner
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,12 +33,26 @@ class AxDynamicBarChipsRefiner @Inject constructor(
     private val _chipsFlow = MutableStateFlow(MultipleOngoingActivityChipsModel())
     val chipsFlow: StateFlow<MultipleOngoingActivityChipsModel> = _chipsFlow.asStateFlow()
 
+    private fun shouldAbsorb(chip: OngoingActivityChipModel.Active): Boolean {
+        val key = chip.key
+        val isAbsorbable = key.startsWith("callChip-") ||
+            key == "ShareToApp" ||
+            key == "ScreenRecord" ||
+            key == "CastToOtherDevice"
+        if (!isAbsorbable) return false
+        if (key == "ScreenRecord") return settings.eventRecording.value
+        if (key.startsWith("callChip-")) return settings.eventCalls.value
+        return true
+    }
+
     override fun transform(input: MultipleOngoingActivityChipsModel): MultipleOngoingActivityChipsModel {
         _chipsFlow.value = input
         if (!settings.isEnabled.value) return input
 
         return input.copy(
-            active = input.active.map { chip -> chip.copy(isHidden = true) },
+            active = input.active.map { chip ->
+                if (shouldAbsorb(chip)) chip.copy(isHidden = true) else chip
+            },
         )
     }
 }

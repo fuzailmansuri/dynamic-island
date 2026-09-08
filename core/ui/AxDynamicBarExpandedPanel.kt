@@ -231,6 +231,10 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
     val panelProgress = remember { Animatable(0f) }
     val bottomScrollPaddingPx = with(density) { ExpandedContentBottomScrollPadding.toPx() }
 
+    val swipeDismiss by viewModel.swipeDismiss.collectAsStateWithLifecycle()
+    val islandScaleSetting by viewModel.scale.collectAsStateWithLifecycle()
+    val userScale = (islandScaleSetting / 100f).coerceIn(0.5f, 1.5f)
+
     LaunchedEffect(chipState) {
         val filtered = chipState?.allEvents?.filter { it !is IslandEvent.AospChip }
         if (filtered.isNullOrEmpty()) {
@@ -332,14 +336,15 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
             if (filtered.isEmpty()) return@let
             val pinnedEventId =
                 filtered.firstOrNull { it.id == state.event.id }?.id ?: filtered.first().id
+            val userScaledMaxWidth = (ExpandedMaxWidth.value * userScale).dp
             Box(
                 modifier =
-                    Modifier.widthIn(max = ExpandedMaxWidth)
+                    Modifier.widthIn(max = userScaledMaxWidth)
                         .onGloballyPositioned { panelBounds = it.screenBounds(rootView) }
                         .graphicsLayer {
                             alpha = progress
-                            scaleX = PanelCollapsedScaleX + (1f - PanelCollapsedScaleX) * progress
-                            scaleY = PanelCollapsedScaleY + (1f - PanelCollapsedScaleY) * progress
+                            scaleX = (PanelCollapsedScaleX + (1f - PanelCollapsedScaleX) * progress) * userScale
+                            scaleY = (PanelCollapsedScaleY + (1f - PanelCollapsedScaleY) * progress) * userScale
                             transformOrigin = TransformOrigin(panelOriginX, 0f)
                         }
                         .clip(RoundedCornerShape(panelRadius))
@@ -351,6 +356,7 @@ private fun ExpandedPanelDialogContentBody(viewModel: AxDynamicBarChipViewModel)
                     onScrollableOverflowChanged = { panelHasScrollableOverflow = it },
                     pinnedEventId = pinnedEventId,
                     hapticsViewModelFactory = viewModel.interactor.sliderHapticsViewModelFactory,
+                    swipeDismissEnabled = swipeDismiss,
                 )
             }
         }

@@ -37,9 +37,16 @@ private const val VELOCITY_SMOOTHING = 0.4f
 internal fun MagneticSwipeToDismiss(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     allowUpDismiss: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    if (!enabled) {
+        Box(modifier = modifier) {
+            content()
+        }
+        return
+    }
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()

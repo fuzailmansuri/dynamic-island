@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -137,7 +139,7 @@ internal fun PillEventIcon(
 @Composable
 private fun StaticPillEventIcon(event: IslandEvent, tint: Color? = null) {
     when (event) {
-        is IslandEvent.Media -> MediaPillIcon(event, animated = false)
+        is IslandEvent.Media -> MediaPillIcon(event)
         is IslandEvent.Notification -> NotificationPillIcon(event)
         is IslandEvent.AppSwitch -> AppSwitchPillIcon(event)
         is IslandEvent.AospChip -> AospChipPillIcon(event, tint, animated = false)
@@ -335,25 +337,27 @@ private fun AnimatedTrophyIcon(color: Color) {
 }
 
 @Composable
-private fun MediaPillIcon(event: IslandEvent.Media, animated: Boolean = true) {
+private fun MediaPillIcon(event: IslandEvent.Media) {
     event.albumArt?.let { art ->
         Image(
-            bitmap = art.toScaledBitmap(16.dp),
+            bitmap = art.toScaledBitmap(18.dp),
             contentDescription = null,
-            modifier = Modifier.size(16.dp).clip(CircleShape),
+            modifier = Modifier.size(18.dp).clip(ShapeXs),
             contentScale = ContentScale.Crop,
         )
     }
         ?: Box(
-            modifier =
-                Modifier.size(16.dp).clip(CircleShape).background(OrangeAccent.copy(alpha = AlphaSubtle + 0.05f)),
+            modifier = Modifier
+                .size(18.dp)
+                .clip(ShapeXs)
+                .background(OnCardText.copy(alpha = AlphaSubtle)),
             contentAlignment = Alignment.Center,
         ) {
-            WaveformAnimation(
-                OrangeAccent,
-                Modifier.size(10.dp),
-                isAnimating = animated && event.isPlaying,
-                barCount = 3,
+            Icon(
+                imageVector = if (event.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = null,
+                tint = OnCardText,
+                modifier = Modifier.size(10.dp),
             )
         }
 }
@@ -1509,7 +1513,7 @@ private fun StopwatchText(event: IslandEvent.Stopwatch, modifier: Modifier, over
             }
         LaunchedEffect(event.startTimeMs) {
             while (true) {
-                delay(200)
+                delay(1000)
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
             }
         }
@@ -1622,6 +1626,61 @@ fun AudioWaveformVisualizer(
                 cap = StrokeCap.Round,
             )
         }
+    }
+}
+
+@Composable
+fun CompactAudioWaveformVisualizer(
+    isPlaying: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier.size(width = 10.dp, height = 8.dp),
+) {
+    // The animation is synthetic: MediaSession exposes playback state, not audio amplitude data.
+    val phaseState: State<Float>? =
+        if (isPlaying) {
+            val transition = rememberInfiniteTransition(label = "compact_audio_wave")
+            transition.animateFloat(
+                initialValue = 0f,
+                targetValue = (2f * PI).toFloat(),
+                animationSpec = infiniteRepeatable(
+                    tween(2_200, easing = FastOutSlowInEasing),
+                    RepeatMode.Restart,
+                ),
+                label = "compact_audio_wave_phase",
+            )
+        } else {
+            null
+        }
+
+    Canvas(modifier = modifier) {
+        val phase = phaseState?.value ?: 0f
+        val centerY = size.height / 2f
+        val amplitude = if (isPlaying) 1.35.dp.toPx() else 0.7.dp.toPx()
+        val crest = centerY - amplitude * (0.65f + 0.35f * sin(phase))
+        val trough = centerY + amplitude * (0.65f - 0.35f * sin(phase))
+        val wave = Path().apply {
+            moveTo(0f, centerY)
+            cubicTo(size.width * 0.16f, crest, size.width * 0.34f, crest, size.width / 2f, centerY)
+            cubicTo(size.width * 0.66f, trough, size.width * 0.84f, trough, size.width, centerY)
+        }
+        val mutedColor = color.copy(
+            red = color.red * 0.55f,
+            green = color.green * 0.55f,
+            blue = color.blue * 0.55f,
+        )
+        val glowAlpha = if (isPlaying) 0.06f else 0.02f
+        val waveAlpha = if (isPlaying) 0.58f else 0.32f
+
+        drawPath(
+            path = wave,
+            color = mutedColor.copy(alpha = glowAlpha),
+            style = Stroke(width = 2.1.dp.toPx(), cap = StrokeCap.Round),
+        )
+        drawPath(
+            path = wave,
+            color = mutedColor.copy(alpha = waveAlpha),
+            style = Stroke(width = 0.9.dp.toPx(), cap = StrokeCap.Round),
+        )
     }
 }
 

@@ -1,14 +1,25 @@
 package com.android.systemui.axdynamicbar.ui.compose
 
+import android.content.res.Configuration
 import android.graphics.Rect
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import com.android.systemui.common.shared.model.ContentDescription
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,6 +58,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,7 +117,7 @@ import com.android.systemui.axdynamicbar.shared.SpaceSm
 import com.android.systemui.axdynamicbar.shared.SpaceXs
 import com.android.systemui.axdynamicbar.shared.TsBadge
 import com.android.systemui.axdynamicbar.shared.chipAccentColorFor
-import com.android.systemui.axdynamicbar.shared.chipProgressFor
+import com.android.systemui.axdynamicbar.shared.compactMediaWaveColor
 import com.android.systemui.axdynamicbar.shared.toScaledBitmap
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipState
 import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
@@ -121,9 +133,10 @@ fun AxDynamicBarChip(
     viewModel: AxDynamicBarChipViewModel,
     modifier: Modifier = Modifier,
     ignoreKeyguard: Boolean = false,
+    isFullscreen: Boolean = false,
 ) {
     AxDynamicBarTheme {
-        AxDynamicBarChipContent(viewModel, modifier, ignoreKeyguard)
+        AxDynamicBarChipContent(viewModel, modifier, ignoreKeyguard, isFullscreen)
     }
 }
 
@@ -133,6 +146,7 @@ private fun AxDynamicBarChipContent(
     viewModel: AxDynamicBarChipViewModel,
     modifier: Modifier,
     ignoreKeyguard: Boolean,
+    isFullscreen: Boolean,
 ) {
     val state by viewModel.chipState.collectAsStateWithLifecycle()
     val isOnKeyguard by viewModel.isOnKeyguard.collectAsStateWithLifecycle()
@@ -141,14 +155,19 @@ private fun AxDynamicBarChipContent(
     
     val carrierName = if (isOnKeyguard && ignoreKeyguard) keyguardCarrier.takeIf { it.isNotBlank() } else null
     val chipTextMaxWidth = dimensionResource(R.dimen.ongoing_activity_chip_max_text_width)
-    val screenWidthPx = with(LocalDensity.current) {
-        LocalConfiguration.current.screenWidthDp.dp.toPx()
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenWidthPx = with(density) {
+        configuration.screenWidthDp.dp.toPx()
     }
     val anchorView = LocalView.current
     var anchorBounds by remember { mutableStateOf<Rect?>(null) }
     val boundsExpandable = rememberBoundsExpandable(anchorBounds)
 
     val touchSlop = LocalViewConfiguration.current.touchSlop
+    val longPressTimeoutMillis = LocalViewConfiguration.current.longPressTimeoutMillis
+    val expandActionLabel = stringResource(R.string.status_bar_chip_custom_a11y_action_expand_notification)
     val transitionControllerFactory =
         (state?.event as? IslandEvent.AospChip)?.active?.transitionManager?.controllerFactory
     val expandableController =
@@ -158,63 +177,168 @@ private fun AxDynamicBarChipContent(
             transitionControllerFactory = transitionControllerFactory,
         )
 
+    var isPressed by remember { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.65f, stiffness = 450f),
+        label = "chip_press_scale",
+    )
+
     val motionScheme = MaterialTheme.motionScheme
+    val cutoutType by viewModel.cutoutType.collectAsStateWithLifecycle()
+    val landscapeMode by viewModel.landscapeMode.collectAsStateWithLifecycle()
+    val suppressFullscreen by viewModel.suppressFullscreen.collectAsStateWithLifecycle()
+    val animationStyle by viewModel.animationStyle.collectAsStateWithLifecycle()
+    val islandScaleSetting by viewModel.scale.collectAsStateWithLifecycle()
+    val userScale = (islandScaleSetting / 100f).coerceIn(0.5f, 1.5f)
+
+    val isCenterCutout = cutoutType == "center"
+
+    val isVisible = isEnabled &&
+        state != null &&
+        (ignoreKeyguard || !isOnKeyguard) &&
+        (!isLandscape || landscapeMode) &&
+        (!suppressFullscreen || !isFullscreen)
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val enterSpec = when (animationStyle) {
+        1 -> fadeIn(motionScheme.defaultEffectsSpec())
+        2 -> fadeIn(tween(150)) + scaleIn(initialScale = 0.9f, animationSpec = tween(150))
+        else -> fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec())
+    }
+    val exitSpec = when (animationStyle) {
+        1 -> fadeOut(motionScheme.fastEffectsSpec())
+        2 -> fadeOut(tween(100)) + scaleOut(targetScale = 0.9f, animationSpec = tween(100))
+        else -> fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec())
+    }
 
     AnimatedVisibility(
-        visible = isEnabled && state != null && (ignoreKeyguard || !isOnKeyguard),
-        enter = fadeIn(motionScheme.defaultEffectsSpec()) + scaleIn(initialScale = 0.8f, animationSpec = motionScheme.defaultSpatialSpec()),
-        exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
+        visible = isVisible,
+        enter = enterSpec,
+        exit = exitSpec,
         modifier = modifier
+            .semantics {
+                role = Role.Button
+                contentDescription = when (val ev = state?.event) {
+                    is IslandEvent.Media -> {
+                        val state = if (ev.isPlaying) "Media" else "Paused"
+                        val title = ev.track.ifBlank { context.getString(R.string.ax_dynamic_bar_music) }
+                        "$state: $title${ev.artist.takeIf { it.isNotBlank() }?.let { " - $it" }.orEmpty()}"
+                    }
+                    is IslandEvent.Notification -> ev.title ?: ev.appName
+                    is IslandEvent.Timer -> "Timer"
+                    is IslandEvent.Stopwatch -> "Stopwatch"
+                    is IslandEvent.Torch -> "Flashlight"
+                    is IslandEvent.AudioRecording -> "Recording"
+                    is IslandEvent.Charging -> "Charging ${ev.level}%"
+                    is IslandEvent.Bluetooth -> "Bluetooth: ${ev.deviceTypeLabel}"
+                    is IslandEvent.Hotspot -> "Hotspot"
+                    is IslandEvent.AospChip -> {
+                        val iconCd = when (val ic = ev.active.icon) {
+                            is OngoingActivityChipModel.ChipIcon.StatusBarNotificationIcon -> ic.contentDescription
+                            is OngoingActivityChipModel.ChipIcon.SingleColorIcon -> ic.impl.contentDescription
+                            null -> null
+                        }
+                        (iconCd as? ContentDescription.Loaded)?.description
+                            ?: (iconCd as? ContentDescription.Resource)?.let {
+                                context.getString(it.res)
+                            }
+                            ?: ev.active.logName
+                    }
+                    else -> "Dynamic Island"
+                }
+                customActions = listOf(
+                    CustomAccessibilityAction(expandActionLabel) {
+                        anchorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        state?.event?.let { ev ->
+                            viewModel.executeLongPressAction(ev, boundsExpandable)
+                        } ?: viewModel.statusBarExpansion.expand(boundsExpandable)
+                        true
+                    }
+                )
+            }
             .pointerInput(viewModel) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                    
+                    isPressed = true
                     val startX = down.position.x
                     val startY = down.position.y
                     var dragging = false
                     var totalDx = 0f
-                    var decided = false 
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) {
-                            
-                            if (dragging) {
-                                change.consume()
-                                if (totalDx > 0) viewModel.cyclePrev()
-                                else viewModel.cycleNext()
-                            } else if (!decided) {
+                    var isLongPress = false
 
-                                change.consume()
-                                val current = state?.event
-                                if (current is IslandEvent.AospChip) {
-                                    if (!viewModel.handleAospChipTap(current, SystemUiExpandable(expandableController.transitionSource))) {
-                                        viewModel.statusBarExpansion.toggle(boundsExpandable)
-                                    }
-                                } else {
-                                    viewModel.statusBarExpansion.toggle(boundsExpandable)
-                                }
+                    // System long press timeout for stationary long press
+                    val releasedOrMoved = withTimeoutOrNull(longPressTimeoutMillis) {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
+                                return@withTimeoutOrNull change
                             }
-                            
-                            break
+                            val dx = change.position.x - startX
+                            val dy = change.position.y - startY
+                            if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
+                                if (abs(dx) >= abs(dy)) {
+                                    dragging = true
+                                    totalDx = dx
+                                    change.consume()
+                                }
+                                return@withTimeoutOrNull change
+                            }
                         }
-                        val dx = change.position.x - startX
-                        val dy = change.position.y - startY
-                        if (!decided && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
-                            if (abs(dx) >= abs(dy)) {
-                                
-                                decided = true
-                                dragging = true
-                                totalDx = dx
+                        null
+                    }
+
+                    if (releasedOrMoved == null) {
+                        // Timed out while holding down stationary -> Long press!
+                        isLongPress = true
+                        anchorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        state?.event?.let { ev ->
+                            viewModel.executeLongPressAction(ev, boundsExpandable)
+                        } ?: viewModel.statusBarExpansion.expand(boundsExpandable)
+                        // Wait for pointer release before finishing gesture
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
                                 change.consume()
-                            } else {
-                                
-                                decided = true
                                 break
                             }
-                        } else if (dragging) {
-                            totalDx = dx
-                            change.consume()
+                        }
+                        isPressed = false
+                    } else if (releasedOrMoved.pressed) {
+                        // Moved beyond touch slop before timeout -> Dragging or gesture abort
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) {
+                                if (dragging) {
+                                    change.consume()
+                                    anchorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    if (totalDx > 0) viewModel.cyclePrev()
+                                    else viewModel.cycleNext()
+                                }
+                                break
+                            }
+                            if (dragging) {
+                                totalDx = change.position.x - startX
+                                change.consume()
+                            }
+                        }
+                        isPressed = false
+                    } else {
+                        // Released before timeout and within slop -> Tap!
+                        isPressed = false
+                        releasedOrMoved.consume()
+                        anchorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        val current = state?.event
+                        if (current is IslandEvent.AospChip) {
+                            if (!viewModel.handleAospChipTap(current, SystemUiExpandable(expandableController.transitionSource))) {
+                                viewModel.executeTapAction(current, SystemUiExpandable(expandableController.transitionSource))
+                            }
+                        } else if (current != null) {
+                            viewModel.executeTapAction(current, SystemUiExpandable(expandableController.transitionSource))
                         }
                     }
                 }
@@ -246,12 +370,12 @@ private fun AxDynamicBarChipContent(
                 MaterialTheme.motionScheme.fastEffectsSpec(),
                 label = "content",
             )
-            val progress = chipProgressFor(event)
             val cutoutType by viewModel.cutoutType.collectAsStateWithLifecycle()
             val cutoutWidthSetting by viewModel.cutoutWidth.collectAsStateWithLifecycle()
             val cutoutHeightSetting by viewModel.cutoutHeight.collectAsStateWithLifecycle()
             val cutoutOffsetXSetting by viewModel.cutoutOffsetX.collectAsStateWithLifecycle()
             val cutoutOffsetYSetting by viewModel.cutoutOffsetY.collectAsStateWithLifecycle()
+            val hideTextBehindCutout by viewModel.hideTextBehindCutout.collectAsStateWithLifecycle()
 
             val privacyGlowState by viewModel.privacyGlowState.collectAsStateWithLifecycle()
             val glowTransition = rememberInfiniteTransition(label = "privacy_glow_pulse")
@@ -292,27 +416,32 @@ private fun AxDynamicBarChipContent(
                 Modifier
             }
 
-            val chipHeightDp = (ChipHeight.value + cutoutHeightSetting).coerceIn(16f, 32f).dp
+            val chipHeightDp = ((ChipHeight.value + cutoutHeightSetting) * userScale).coerceIn(16f, 48f).dp
             val chipMinWidthDp =
                 if (cutoutType == "center") {
-                    (64f + cutoutWidthSetting).coerceAtLeast(36f).dp
+                    ((72f + cutoutWidthSetting) * userScale).coerceAtLeast(38f).dp
                 } else if (cutoutWidthSetting != 0) {
-                    (48f + cutoutWidthSetting).coerceAtLeast(24f).dp
+                    ((48f + cutoutWidthSetting) * userScale).coerceAtLeast(24f).dp
                 } else {
                     Dp.Unspecified
                 }
             val chipMaxWidthDp =
                 if (cutoutType == "center") {
-                    (180f + cutoutWidthSetting).coerceIn(90f, 220f).dp
+                    ((180f + cutoutWidthSetting) * userScale).coerceIn(90f, 320f).dp
                 } else {
-                    (120f + cutoutWidthSetting).coerceIn(60f, 140f).dp
+                    ((120f + cutoutWidthSetting) * userScale).coerceIn(60f, 220f).dp
                 }
-            val safeOffsetX = cutoutOffsetXSetting.coerceIn(-8, 8)
-            val safeOffsetY = cutoutOffsetYSetting.coerceIn(-8, 8)
+            val safeOffsetX = cutoutOffsetXSetting.coerceIn(-50, 50)
+            val safeOffsetY = cutoutOffsetYSetting.coerceIn(-50, 50)
 
             Box(
                 modifier = Modifier.fillMaxHeight(),
-                contentAlignment = if (cutoutType == "left") Alignment.CenterStart else Alignment.Center,
+                contentAlignment =
+                    when (cutoutType) {
+                        "left" -> Alignment.CenterStart
+                        "right" -> Alignment.CenterEnd
+                        else -> Alignment.Center
+                    },
             ) {
                 Row(
                     modifier =
@@ -337,31 +466,14 @@ private fun AxDynamicBarChipContent(
                                 Modifier.height(chipHeightDp)
                                     .widthIn(min = chipMinWidthDp, max = chipMaxWidthDp)
                                     .offset(x = safeOffsetX.dp, y = safeOffsetY.dp)
+                                    .graphicsLayer {
+                                        scaleX = pressScale
+                                        scaleY = pressScale
+                                    }
                                     .then(chipVisibilityModifier)
                                     .then(privacyGlowModifier)
                                     .clip(ChipShape)
                                     .background(CardBg)
-                                    .then(
-                                        if (progress != null) {
-                                            val trackColor = lerp(accent, contentColor, 0.2f)
-                                            val fillColor = lerp(accent, contentColor, 0.6f)
-                                            Modifier.drawWithContent {
-                                                drawContent()
-                                                val barH = 2.dp.toPx()
-                                                val y = size.height - barH
-                                                drawRect(
-                                                    trackColor,
-                                                    topLeft = Offset(0f, y),
-                                                    size = Size(size.width, barH),
-                                                )
-                                                drawRect(
-                                                    fillColor,
-                                                    topLeft = Offset(0f, y),
-                                                    size = Size(size.width * progress, barH),
-                                                )
-                                            }
-                                        } else Modifier
-                                    )
                                     .padding(
                                         start = SpaceSm,
                                         end = if (cutoutType == "center") SpaceSm else SpaceMd,
@@ -375,6 +487,7 @@ private fun AxDynamicBarChipContent(
                                     contentColor = contentColor,
                                     accent = accent,
                                     cutoutWidthSetting = cutoutWidthSetting,
+                                    hideTextBehindCutout = hideTextBehindCutout,
                                     chipTextMaxWidth = chipTextMaxWidth,
                                     carrierName = carrierName,
                                 )
@@ -443,6 +556,7 @@ private fun AxDynamicBarChipContent(
                                                     val change = pointerEvent.changes.firstOrNull() ?: break
                                                     if (!change.pressed) {
                                                         change.consume()
+                                                        anchorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                                         viewModel.pinEvent(secondaryEvent)
                                                         break
                                                     }
@@ -662,16 +776,10 @@ private fun ChipDefaultEventContent(
         PillEventIcon(event, tint = contentColor, animated = false)
         Spacer(Modifier.width(SpaceXs))
         if (event is IslandEvent.Media) {
-            MediaText(
-                mediaTextStateFor(event),
-                Modifier.weight(1f, fill = false).widthIn(max = chipTextMaxWidth),
-                overrideColor = contentColor,
-            )
-            Spacer(Modifier.width(SpaceXs))
-            AudioWaveformVisualizer(
+            CompactAudioWaveformVisualizer(
                 isPlaying = event.isPlaying,
-                color = contentColor,
-                modifier = Modifier.size(width = 14.dp, height = 12.dp),
+                color = compactMediaWaveColor(event),
+                modifier = Modifier.size(width = 10.dp, height = 8.dp),
             )
         } else {
             PillEventText(
@@ -693,6 +801,7 @@ private fun CenterCutoutCompactPillContent(
     contentColor: Color,
     accent: Color,
     cutoutWidthSetting: Int,
+    hideTextBehindCutout: Boolean,
     chipTextMaxWidth: Dp,
     carrierName: String?,
 ) {
@@ -717,8 +826,12 @@ private fun CenterCutoutCompactPillContent(
         CenterCutoutLeadingSlot(event, contentColor)
     }
 
-    // 2. Camera Cutout Dead-Zone Spacer: zero text/graphics drawn under physical lens
-    Spacer(modifier = Modifier.width((28f + cutoutWidthSetting).coerceAtLeast(14f).dp))
+    // 2. Camera Cutout Dead-Zone Spacer: zero text/graphics drawn under physical lens when enabled
+    if (hideTextBehindCutout) {
+        Spacer(modifier = Modifier.width((34f + cutoutWidthSetting).coerceAtLeast(16f).dp))
+    } else {
+        Spacer(modifier = Modifier.width(SpaceXs))
+    }
 
     // 3. Trailing Slot (right of camera): Animated equalizer bars, call timer, countdown, badge text
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -737,36 +850,37 @@ private fun CenterCutoutLeadingSlot(
     event: IslandEvent,
     contentColor: Color,
 ) {
-    when (event) {
-        is IslandEvent.Media -> {
-            if (event.albumArt != null) {
-                Image(
-                    bitmap = event.albumArt.toScaledBitmap(16.dp),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
+    val a11yDesc = when (event) {
+        is IslandEvent.Media -> if (event.isPlaying) stringResource(R.string.ax_dynamic_bar_media_playing) else stringResource(R.string.ax_dynamic_bar_media_paused)
+        is IslandEvent.Notification -> event.appName.ifEmpty { stringResource(R.string.ax_dynamic_bar_open) }
+        is IslandEvent.Sports -> "${event.team1Name} vs ${event.team2Name}"
+        else -> stringResource(R.string.ax_dynamic_bar_desc_island)
+    }
+
+    Box(modifier = Modifier.semantics {
+        contentDescription = a11yDesc
+        role = Role.Button
+    }) {
+        when (event) {
+            is IslandEvent.Media -> PillEventIcon(event, tint = contentColor, animated = false)
+            is IslandEvent.Notification -> {
+                if (event.appIcon != null) {
+                    Image(
+                        bitmap = event.appIcon.toScaledBitmap(16.dp),
+                        contentDescription = a11yDesc,
+                        modifier = Modifier.size(16.dp).clip(ShapeXs),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    PillEventIcon(event, tint = contentColor, animated = false)
+                }
+            }
+            is IslandEvent.Sports -> {
+                StatusBarSportsTeamBadge(event.team1Name, event.team1Icon, contentColor)
+            }
+            else -> {
                 PillEventIcon(event, tint = contentColor, animated = false)
             }
-        }
-        is IslandEvent.Notification -> {
-            if (event.appIcon != null) {
-                Image(
-                    bitmap = event.appIcon.toScaledBitmap(16.dp),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp).clip(ShapeXs),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                PillEventIcon(event, tint = contentColor, animated = false)
-            }
-        }
-        is IslandEvent.Sports -> {
-            StatusBarSportsTeamBadge(event.team1Name, event.team1Icon, contentColor)
-        }
-        else -> {
-            PillEventIcon(event, tint = contentColor, animated = false)
         }
     }
 }
@@ -781,10 +895,10 @@ private fun CenterCutoutTrailingSlot(
 ) {
     when (event) {
         is IslandEvent.Media -> {
-            AudioWaveformVisualizer(
+            CompactAudioWaveformVisualizer(
                 isPlaying = event.isPlaying,
-                color = contentColor,
-                modifier = Modifier.size(width = 14.dp, height = 12.dp),
+                color = compactMediaWaveColor(event),
+                modifier = Modifier.size(width = 10.dp, height = 8.dp),
             )
             if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
                 ChipEventCountBadge(chipState, accent, contentColor)
@@ -819,16 +933,13 @@ private fun CenterCutoutTrailingSlot(
                     )
                 }
                 is OngoingActivityChipModel.Content.ShortTimeDelta -> {
-                    val timeRemainingState =
+                    val deltaState =
                         rememberTimeRemainingState(
+                            futureTimeMillis = c.time,
                             timeSource = c.timeSource,
-                            data =
-                                formatTimeRemainingData(
-                                    totalDuration = c.delta,
-                                    currentTime = c.timeSource.elapsedRealtime(),
-                                ),
                         )
-                    timeRemainingState.currentTimeText?.let { text ->
+                    val text = deltaState.timeRemainingData?.let { formatTimeRemainingData(it) } ?: ""
+                    if (text.isNotBlank()) {
                         Text(
                             text = text,
                             style = PillPrimary,
@@ -881,11 +992,11 @@ private fun CenterCutoutTrailingSlot(
                     )
                 } else {
                     var remainingMs by
-                        remember(event.endTimeMs) {
+                        remember(event.id, event.endTimeMs, event.isPaused) {
                             mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
                         }
-                    LaunchedEffect(event.endTimeMs) {
-                        while (remainingMs > 0L) {
+                    LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
+                        while (isActive && remainingMs > 0L) {
                             delay(500)
                             remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
                         }
@@ -922,12 +1033,12 @@ private fun CenterCutoutTrailingSlot(
                 )
             } else {
                 var elapsedMs by
-                    remember(event.startTimeMs) {
+                    remember(event.id, event.startTimeMs, event.isRunning) {
                         mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
                     }
-                LaunchedEffect(event.startTimeMs) {
-                    while (true) {
-                        delay(200)
+                LaunchedEffect(event.id, event.startTimeMs, event.isRunning) {
+                    while (isActive && event.isRunning) {
+                        delay(1000)
                         elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
                     }
                 }
@@ -946,13 +1057,17 @@ private fun CenterCutoutTrailingSlot(
         is IslandEvent.AudioRecording -> {
             PulsingDot(color = contentColor, size = 6.dp)
             var elapsedMs by
-                remember(event.startTimeMs) {
-                    mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
+                remember(event.id, event.startTimeMs, event.state, event.pausedDurationMs) {
+                    mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs).coerceAtLeast(0L))
                 }
-            LaunchedEffect(event.startTimeMs, event.state) {
-                while (event.state == RecordingState.RECORDING) {
-                    delay(500)
-                    elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
+            LaunchedEffect(event.id, event.startTimeMs, event.state, event.pausedDurationMs) {
+                if (event.state == RecordingState.RECORDING) {
+                    while (isActive && event.state == RecordingState.RECORDING) {
+                        delay(500)
+                        elapsedMs =
+                            (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
+                                .coerceAtLeast(0L)
+                    }
                 }
             }
             Spacer(Modifier.width(SpaceXs))
@@ -1082,26 +1197,36 @@ private fun SecondaryCapsuleContent(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PillEventIcon(event, tint = contentColor, animated = true)
                 if (event.endTimeMs > 0L) {
-                    var remainingMs by
-                        remember(event.endTimeMs) {
-                            mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
-                        }
-                    LaunchedEffect(event.endTimeMs) {
-                        while (remainingMs > 0L) {
-                            delay(500)
-                            remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
-                        }
-                    }
-                    val text = formatCountdownLong(remainingMs)
-                    if (text.isNotEmpty()) {
-                        Spacer(Modifier.width(2.dp))
+                    if (event.isPaused) {
                         Text(
-                            text = text,
+                            text = stringResource(R.string.ax_dynamic_bar_paused),
                             style = PillPrimary,
                             color = contentColor,
                             maxLines = 1,
                             softWrap = false,
                         )
+                    } else {
+                        var remainingMs by
+                            remember(event.id, event.endTimeMs, event.isPaused) {
+                                mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
+                            }
+                        LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
+                            while (isActive && remainingMs > 0L) {
+                                delay(500)
+                                remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                            }
+                        }
+                        val text = formatCountdownLong(remainingMs)
+                        if (text.isNotEmpty()) {
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = text,
+                                style = PillPrimary,
+                                color = contentColor,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
                     }
                 }
             }
@@ -1112,10 +1237,10 @@ private fun SecondaryCapsuleContent(
             }
         }
         is IslandEvent.Media -> {
-            AudioWaveformVisualizer(
+            CompactAudioWaveformVisualizer(
                 isPlaying = event.isPlaying,
-                color = contentColor,
-                modifier = Modifier.size(width = 14.dp, height = 12.dp),
+                color = compactMediaWaveColor(event),
+                modifier = Modifier.size(width = 10.dp, height = 8.dp),
             )
         }
         is IslandEvent.AudioRecording -> {

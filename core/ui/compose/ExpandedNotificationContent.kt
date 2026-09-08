@@ -75,6 +75,7 @@ import com.android.systemui.res.R
 internal fun NotificationExpanded(
     event: IslandEvent.Notification,
     interactor: IslandActions,
+    swipeDismissEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
     val accent = BlueAccent
@@ -329,6 +330,7 @@ internal fun NotificationGroupCard(
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
     interactor: IslandActions,
+    swipeDismissEnabled: Boolean = true,
 ) {
     val first = notifications.first()
     val accent = BlueAccent
@@ -410,6 +412,7 @@ internal fun NotificationGroupCard(
                         event = event,
                         interactor = interactor,
                         onDismiss = { interactor.dismissEvent(event) },
+                        swipeDismissEnabled = swipeDismissEnabled,
                     )
                 }
             }
@@ -423,12 +426,16 @@ private fun GroupedNotificationRow(
     event: IslandEvent.Notification,
     interactor: IslandActions,
     onDismiss: () -> Unit,
+    swipeDismissEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
     val accent = BlueAccent
     var childExpanded by remember { mutableStateOf(false) }
 
-    MagneticSwipeToDismiss(onDismiss = onDismiss) {
+    MagneticSwipeToDismiss(
+        onDismiss = onDismiss,
+        enabled = swipeDismissEnabled,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

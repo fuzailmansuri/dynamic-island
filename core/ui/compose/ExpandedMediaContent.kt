@@ -2,6 +2,9 @@
 
 package com.android.systemui.axdynamicbar.ui.compose
 
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,8 +49,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -147,6 +152,26 @@ internal fun MediaCard(event: IslandEvent.Media, interactor: IslandActions) {
                     .padding(horizontal = SpaceXxl, vertical = SpaceLg),
                 verticalArrangement = Arrangement.spacedBy(SpaceLg),
             ) {
+                event.outputDeviceName.takeIf { it.isNotBlank() }?.let { outputDeviceName ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(SpaceSm),
+                    ) {
+                        Icon(
+                            Icons.Filled.VolumeUp,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(SizeIconSm),
+                        )
+                        Text(
+                            outputDeviceName,
+                            color = OnCardSecondary,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 if (event.duration > 0L) {
                     MediaSeekBar(event, interactor, accent)
                 }
@@ -237,6 +262,27 @@ internal fun MediaExpanded(
             }
         }
 
+        event.outputDeviceName.takeIf { it.isNotBlank() }?.let { outputDeviceName ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(SpaceSm),
+            ) {
+                Icon(
+                    Icons.Filled.VolumeUp,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(SizeIconSm),
+                )
+                Text(
+                    outputDeviceName,
+                    color = OnCardSecondary,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
         MediaControls(event, interactor, accent)
         if (event.duration > 0L) {
             MediaSeekBar(event, interactor, accent)
@@ -271,8 +317,14 @@ private fun MediaControls(
     interactor: IslandActions,
     accent: Color,
 ) {
+    val view = LocalView.current
     val onAccent = chipContentColorOn(accent)
     val tonalBg = accent.copy(alpha = AlphaSubtle)
+    val playPauseScale by animateFloatAsState(
+        targetValue = if (event.isPlaying) 1.05f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "media_play_pause_scale",
+    )
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -282,14 +334,18 @@ private fun MediaControls(
         MediaCustomActionButton(event, interactor, accent, tonalBg)
 
         Surface(
-            onClick = { interactor.skipPrev() },
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                interactor.skipPrev()
+            },
             shape = CircleShape,
             color = tonalBg,
             modifier = Modifier.size(ControlButtonSize),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
-                    Icons.Filled.SkipPrevious, null,
+                    Icons.Filled.SkipPrevious,
+                    stringResource(R.string.ax_dynamic_bar_previous),
                     tint = accent,
                     modifier = Modifier.size(ControlIconSize),
                 )
@@ -297,10 +353,16 @@ private fun MediaControls(
         }
 
         Surface(
-            onClick = { interactor.togglePlayPause() },
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                interactor.togglePlayPause()
+            },
             shape = CircleShape,
             color = accent,
-            modifier = Modifier.size(PlayPauseSize),
+            modifier = Modifier.size(PlayPauseSize).graphicsLayer {
+                scaleX = playPauseScale
+                scaleY = playPauseScale
+            },
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
@@ -316,14 +378,18 @@ private fun MediaControls(
         }
 
         Surface(
-            onClick = { interactor.skipNext() },
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                interactor.skipNext()
+            },
             shape = CircleShape,
             color = tonalBg,
             modifier = Modifier.size(ControlButtonSize),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
-                    Icons.Filled.SkipNext, null,
+                    Icons.Filled.SkipNext,
+                    stringResource(R.string.ax_dynamic_bar_next),
                     tint = accent,
                     modifier = Modifier.size(ControlIconSize),
                 )
@@ -342,8 +408,8 @@ private fun MediaSeekBar(
 ) {
     val mediaProgress = rememberMediaProgress(event)
     val clamped = mediaProgress.progress
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekProgress by remember { mutableFloatStateOf(clamped) }
+    var isSeeking by remember(event.id) { mutableStateOf(false) }
+    var seekProgress by remember(event.id) { mutableFloatStateOf(clamped) }
     if (!isSeeking) seekProgress = clamped
     val displayMs =
         if (isSeeking) (seekProgress * event.duration).toLong()
@@ -468,7 +534,8 @@ private fun MediaEndActionButton(
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
-                    Icons.Filled.VolumeUp, null,
+                    Icons.Filled.VolumeUp,
+                    stringResource(R.string.ax_dynamic_bar_media_output),
                     tint = accent,
                     modifier = Modifier.size(ControlIconSize),
                 )

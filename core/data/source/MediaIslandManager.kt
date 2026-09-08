@@ -17,12 +17,10 @@ import android.util.Log
 import com.android.systemui.axdynamicbar.model.IslandEvent
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
-import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.media.MediaSessionManager
 import com.android.systemui.media.NotificationMediaManager
 import com.android.systemui.media.dialog.MediaOutputDialogManager
-import com.android.systemui.util.concurrency.RepeatableExecutor
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,14 +33,12 @@ class MediaIslandManager
 constructor(
     @Application private val context: Context,
     @Main private val mainHandler: Handler,
-    @Background private val backgroundExecutor: RepeatableExecutor,
     private val notificationMediaManager: NotificationMediaManager,
     private val mediaOutputDialogManager: MediaOutputDialogManager,
     private val mediaSessionManager: MediaSessionManager,
 ) {
     companion object {
         private const val TAG = "MediaIslandManager"
-        private const val POSITION_UPDATE_INTERVAL_MS = 1000L
     }
 
     private val _mediaEvent = MutableStateFlow<IslandEvent.Media?>(null)
@@ -142,33 +138,6 @@ constructor(
         val speed = state.playbackSpeed.takeIf { it > 0f } ?: 1f
         val maxPosition = duration.takeIf { it > 0L } ?: Long.MAX_VALUE
         return (basePos + (elapsed * speed).toLong()).coerceIn(0L, maxPosition)
-    }
-
-    private var cancelProgressPolling: Runnable? = null
-
-    private fun tickProgress() {
-        _mediaEvent.update { event ->
-            if (event == null || !event.isPlaying || event.duration <= 0L) return@update event
-            val now = SystemClock.elapsedRealtime()
-            val elapsed = now - event.positionUpdateTime
-            val position =
-                (event.position + (elapsed * event.playbackSpeed).toLong())
-                    .coerceIn(0L, event.duration)
-            val progress = (position.toFloat() / event.duration).coerceIn(0f, 1f)
-            event.copy(progress = progress, position = position, positionUpdateTime = now)
-        }
-    }
-
-    fun startProgressPolling() {
-        if (cancelProgressPolling != null) return
-        cancelProgressPolling = backgroundExecutor.executeRepeatedly(
-            ::tickProgress, 0L, POSITION_UPDATE_INTERVAL_MS,
-        )
-    }
-
-    fun stopProgressPolling() {
-        cancelProgressPolling?.run()
-        cancelProgressPolling = null
     }
 
     private fun updatePosition(state: PlaybackState) {
@@ -307,7 +276,6 @@ constructor(
     fun stopListening() {
         if (!listening) return
         listening = false
-        stopProgressPolling()
         notificationMediaManager.removeCallback(mediaListener)
         mediaSessionManager.removeListener(mediaSessionListener)
         try {
@@ -323,7 +291,6 @@ constructor(
     }
 
     fun clear() {
-        stopProgressPolling()
         _mediaEvent.value = null
         activeMediaPackage = null
     }

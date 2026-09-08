@@ -97,6 +97,7 @@ import com.android.systemui.axdynamicbar.model.RecordingState
 import com.android.systemui.axdynamicbar.shared.*
 import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 internal fun KeyguardExpandedContent(
@@ -570,12 +571,12 @@ private fun KeyguardMediaPanel(event: IslandEvent.Media, interactor: IslandActio
 private fun KeyguardTimerPanel(event: IslandEvent.Timer, interactor: IslandActions) {
     val context = LocalContext.current
     val colors = rememberIslandColors(event)
-    var remainingMs by remember(event.endTimeMs) {
+    var remainingMs by remember(event.id, event.endTimeMs, event.isPaused) {
         mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
     }
     if (!event.isPaused) {
-        LaunchedEffect(event.endTimeMs) {
-            while (remainingMs > 0L) {
+        LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
+            while (isActive && remainingMs > 0L) {
                 delay(500)
                 remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
             }
@@ -666,13 +667,13 @@ private fun KeyguardTimerPanel(event: IslandEvent.Timer, interactor: IslandActio
 private fun KeyguardStopwatchPanel(event: IslandEvent.Stopwatch, interactor: IslandActions) {
     val context = LocalContext.current
     val colors = rememberIslandColors(event)
-    var elapsedMs by remember(event.startTimeMs) {
+    var elapsedMs by remember(event.id, event.startTimeMs, event.isRunning) {
         mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
     }
     if (event.isRunning) {
-        LaunchedEffect(event.startTimeMs) {
-            while (true) {
-                delay(200)
+        LaunchedEffect(event.id, event.startTimeMs, event.isRunning) {
+            while (isActive && event.isRunning) {
+                delay(1000)
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
             }
         }
@@ -750,16 +751,15 @@ private fun KeyguardAudioRecordingPanel(event: IslandEvent.AudioRecording, inter
     val context = LocalContext.current
     val colors = rememberIslandColors(event)
     var elapsedMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(event.startTimeMs, event.state, event.pausedDurationMs) {
+    LaunchedEffect(event.id, event.startTimeMs, event.state, event.pausedDurationMs) {
+        elapsedMs = (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
+            .coerceAtLeast(0L)
         if (event.state == RecordingState.RECORDING) {
-            while (true) {
+            while (isActive && event.state == RecordingState.RECORDING) {
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
                     .coerceAtLeast(0L)
                 delay(1000)
             }
-        } else {
-            elapsedMs = (System.currentTimeMillis() - event.startTimeMs - event.pausedDurationMs)
-                .coerceAtLeast(0L)
         }
     }
 

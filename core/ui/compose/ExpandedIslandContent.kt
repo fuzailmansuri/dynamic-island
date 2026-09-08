@@ -58,6 +58,7 @@ fun ExpandedIslandContent(
     expandedFilter: String? = null,
     pinnedEventId: String? = null,
     hapticsViewModelFactory: SliderHapticsViewModel.Factory,
+    swipeDismissEnabled: Boolean = true,
 ) {
     if (events.isEmpty()) return
 
@@ -143,6 +144,7 @@ fun ExpandedIslandContent(
                     item(key = event.id) {
                         MagneticSwipeToDismiss(
                             onDismiss = { interactor.dismissEvent(event) },
+                            enabled = swipeDismissEnabled,
                             modifier = Modifier.animateItem(
                                 fadeInSpec = itemFadeInSpec,
                                 placementSpec = itemPlacementSpec,
@@ -158,6 +160,7 @@ fun ExpandedIslandContent(
                     item(key = "group_$pkg") {
                         MagneticSwipeToDismiss(
                             onDismiss = { group.forEach { interactor.dismissEvent(it) } },
+                            enabled = swipeDismissEnabled,
                             modifier = Modifier.animateItem(
                                 fadeInSpec = itemFadeInSpec,
                                 placementSpec = itemPlacementSpec,
@@ -170,6 +173,7 @@ fun ExpandedIslandContent(
                                     isExpanded = isExpanded,
                                     onToggleExpand = { expandedGroups[pkg] = !isExpanded },
                                     interactor = interactor,
+                                    swipeDismissEnabled = swipeDismissEnabled,
                                 )
                             }
                         }
@@ -180,6 +184,7 @@ fun ExpandedIslandContent(
             items(filteredEvents, key = { it.id }) { event ->
                 MagneticSwipeToDismiss(
                     onDismiss = { interactor.dismissEvent(event) },
+                    enabled = swipeDismissEnabled,
                     modifier = Modifier.animateItem(
                         fadeInSpec = itemFadeInSpec,
                         placementSpec = itemPlacementSpec,

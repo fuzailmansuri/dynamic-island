@@ -161,6 +161,15 @@ constructor(
     val cutoutHeight: StateFlow<Int> = interactor.settings.cutoutHeight
     val cutoutOffsetX: StateFlow<Int> = interactor.settings.cutoutOffsetX
     val cutoutOffsetY: StateFlow<Int> = interactor.settings.cutoutOffsetY
+    val hideTextBehindCutout: StateFlow<Boolean> = interactor.settings.hideTextBehindCutout
+
+    val tapAction: StateFlow<Int> = interactor.settings.tapAction
+    val longPressAction: StateFlow<Int> = interactor.settings.longPressAction
+    val swipeDismiss: StateFlow<Boolean> = interactor.settings.swipeDismiss
+    val landscapeMode: StateFlow<Boolean> = interactor.settings.landscapeMode
+    val suppressFullscreen: StateFlow<Boolean> = interactor.settings.suppressFullscreen
+    val animationStyle: StateFlow<Int> = interactor.settings.animationStyle
+    val scale: StateFlow<Int> = interactor.settings.scale
 
     val keyguardBatteryInfo: StateFlow<KeyguardBatteryInfo> =
         combine(
@@ -256,6 +265,37 @@ constructor(
 
     fun launchNotificationFromKeyguard(event: IslandEvent.Notification) {
         interactor.launchNotificationDismissingKeyguard(event)
+    }
+
+        fun expandShade() {
+        interactor.expandShade()
+    }
+
+    fun executeTapAction(event: IslandEvent, expandable: Expandable? = null) {
+        when (interactor.settings.tapAction.value) {
+            1 -> statusBarExpansion.expand(expandable)
+            2 -> interactor.expandShade()
+            0 -> openAppForEvent(event, expandable)
+            else -> openAppForEvent(event, expandable)
+        }
+    }
+
+    fun executeLongPressAction(event: IslandEvent, expandable: Expandable? = null) {
+        when (interactor.settings.longPressAction.value) {
+            0 -> openAppForEvent(event, expandable)
+            2 -> interactor.expandShade()
+            1 -> statusBarExpansion.expand(expandable)
+            else -> statusBarExpansion.expand(expandable)
+        }
+    }
+
+    fun openAppForEvent(event: IslandEvent, expandable: Expandable? = null) {
+        when (event) {
+            is IslandEvent.Media -> interactor.openMediaApp(expandable)
+            is IslandEvent.Notification -> interactor.launchNotificationDismissingKeyguard(event)
+            is IslandEvent.AospChip -> handleAospChipTap(event, expandable ?: return)
+            else -> statusBarExpansion.expand(expandable)
+        }
     }
 
     fun handleAospChipTap(event: IslandEvent.AospChip, expandable: Expandable): Boolean {

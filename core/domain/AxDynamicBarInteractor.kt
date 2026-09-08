@@ -52,6 +52,7 @@ constructor(
     val uiState: StateFlow<IslandUiState> = _uiState.asStateFlow()
 
     private val autoDismissJobs = ConcurrentHashMap<String, Job>()
+    private val autoDismissGenerations = ConcurrentHashMap<String, Long>()
 
     private val dismissedEventIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -59,15 +60,31 @@ constructor(
 
     var onCollapseRequested: (() -> Unit)? = null
 
+    private val indicationListener = KeyguardIndicationController.IndicationListener { type, text ->
+        val indicationType = mapIndicationType(type) ?: return@IndicationListener
+        if (!settings.isEnabled.value) return@IndicationListener
+        if (text != null && text.isNotEmpty()) {
+            val event = IslandEvent.KeyguardIndication(
+                text = text.toString(),
+                indicationType = indicationType,
+            )
+            repository.updateIndicationEvent(event)
+            scheduleAutoDismiss(event)
+        } else {
+            invalidateAutoDismiss("kg_indication_${indicationType.name}")
+            repository.clearIndicationEvent(indicationType)
+        }
+    }
+    private var indicationListenerRegistered = false
     private var isInitialized = false
 
     @Volatile private var panelBlocking = false
     private val _isPanelExpanded = MutableStateFlow(false)
-    
+
     val isPanelExpanded: StateFlow<Boolean> = _isPanelExpanded.asStateFlow()
-    
+
     val qsExpansion: StateFlow<Float> = shadeInteractor.qsExpansion
-    
+
     val legacyShadeExpansion: StateFlow<Float> = shadeRepository.legacyShadeExpansion
     private val _isOnKeyguard = MutableStateFlow(false)
     val isOnKeyguard: StateFlow<Boolean> = _isOnKeyguard.asStateFlow()
@@ -78,12 +95,12 @@ constructor(
     private val _isDozing = MutableStateFlow(statusBarStateController.isDozing)
     val isDozing: StateFlow<Boolean> = _isDozing.asStateFlow()
     private val _dozeAmount = MutableStateFlow(0f)
-    
+
     val dozeAmount: StateFlow<Float> = _dozeAmount.asStateFlow()
     @Volatile private var isDreaming = false
 
     private val statusBlocking: Boolean
-        get() = _isDozing.value || isDreaming
+        get() = _isDozing.value || (_dozeAmount.value > 0f) || isDreaming
 
     companion object {
         private const val TAG = "AxDynamicBarInteractor"
@@ -113,28 +130,6 @@ constructor(
                 if (event?.state == RecordingState.SAVED) {
                     scheduleAutoDismiss(event, 5_000L)
                 }
-            }
-        }
-
-        applicationScope.launch {
-            repository.notification.notificationFlow.collect { notification ->
-                repository.notification.coalesceNotification(notification)
-            }
-        }
-
-        applicationScope.launch {
-            combine(
-                _uiState.map { state ->
-                    state.shouldShow &&
-                        state.events.any { it is IslandEvent.Media && it.isPlaying && it.duration > 0L }
-                },
-                _isPanelExpanded,
-                qsExpansion.map { it > 0f },
-            ) { mediaActive, panelExpanded, qsOpen ->
-                mediaActive && !panelExpanded && !qsOpen
-            }.distinctUntilChanged().collect { needsPolling ->
-                if (needsPolling) repository.media.startProgressPolling()
-                else repository.media.stopProgressPolling()
             }
         }
 
@@ -172,6 +167,7 @@ constructor(
 
                 override fun onDozeAmountChanged(linear: Float, eased: Float) {
                     _dozeAmount.value = linear
+                    updateChipVisibility()
                 }
 
                 override fun onDreamingChanged(dreaming: Boolean) {
@@ -181,27 +177,26 @@ constructor(
             }
         )
 
-        indicationController.addIndicationListener { type, text ->
-            val indicationType = mapIndicationType(type) ?: return@addIndicationListener
-            if (text != null && text.isNotEmpty()) {
-                val event = IslandEvent.KeyguardIndication(
-                    text = text.toString(),
-                    indicationType = indicationType,
-                )
-                repository.updateIndicationEvent(event)
-                scheduleAutoDismiss(event)
-            } else {
-                repository.clearIndicationEvent(indicationType)
-            }
+        if (!indicationListenerRegistered) {
+            indicationController.addIndicationListener(indicationListener)
+            indicationListenerRegistered = true
         }
 
         applicationScope.launch {
             settings.isEnabled.collect { enabled ->
-                if (enabled) repository.startListening()
-                else {
+                if (enabled) {
+                    if (!indicationListenerRegistered) {
+                        indicationController.addIndicationListener(indicationListener)
+                        indicationListenerRegistered = true
+                    }
+                    repository.startListening()
+                } else {
                     repository.stopListening()
+                    indicationController.removeIndicationListener(indicationListener)
+                    indicationListenerRegistered = false
                     autoDismissJobs.values.forEach { it.cancel() }
                     autoDismissJobs.clear()
+                    autoDismissGenerations.clear()
                     dismissedEventIds.clear()
                     repository.clearAllIndicationEvents()
                     _uiState.value = IslandUiState()
@@ -326,8 +321,7 @@ constructor(
     }
 
     override fun dismissEvent(event: IslandEvent) {
-        autoDismissJobs[event.id]?.cancel()
-        autoDismissJobs.remove(event.id)
+        invalidateAutoDismiss(event.id)
         if (event.behavior.suppressOnDismiss) {
             dismissedEventIds.add(event.id)
         }
@@ -378,6 +372,10 @@ constructor(
         }
     }
 
+    fun expandShade() {
+        shadeInteractor.expandNotificationsShade("AxDynamicBar")
+    }
+
     fun getTopEvent(): IslandEvent? = _uiState.value.topEvent
 
     override fun collapseIsland() {
@@ -385,8 +383,7 @@ constructor(
     }
 
     override fun onNotificationInteraction(eventId: String) {
-        autoDismissJobs[eventId]?.cancel()
-        autoDismissJobs.remove(eventId)
+        invalidateAutoDismiss(eventId)
     }
 
     override fun onNotificationInteractionEnd(eventId: String) {
@@ -410,11 +407,15 @@ constructor(
 
     override fun openMediaApp(expandable: Expandable?) {
         val intent = repository.media.getMediaAppIntent() ?: return
-        activityStarter.postStartActivityDismissingKeyguard(
-            intent,
-            0,
-            expandable?.activityTransitionController(Cuj.CUJ_SHADE_APP_LAUNCH_FROM_MEDIA_PLAYER),
-        )
+        try {
+            activityStarter.postStartActivityDismissingKeyguard(
+                intent,
+                0,
+                expandable?.activityTransitionController(Cuj.CUJ_SHADE_APP_LAUNCH_FROM_MEDIA_PLAYER),
+            )
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "Failed to launch media app", e)
+        }
     }
 
     override fun seekTo(position: Long) = repository.media.seekTo(position)
@@ -425,7 +426,11 @@ constructor(
 
     override fun launchNotificationDismissingKeyguard(event: IslandEvent.Notification) {
         val intent = event.sbn.notification?.contentIntent ?: return
-        activityStarter.startPendingIntentDismissingKeyguard(intent)
+        try {
+            activityStarter.startPendingIntentDismissingKeyguard(intent)
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "Failed to launch notification intent", e)
+        }
     }
 
     override fun setTorchLevel(level: Int) = repository.torch.setLevel(level)
@@ -459,13 +464,21 @@ constructor(
     private fun scheduleAutoDismiss(event: IslandEvent, delayOverride: Long? = null) {
         val ms = delayOverride ?: event.behavior.autoDismissMs ?: return
         val eventId = event.id
-        autoDismissJobs[eventId]?.cancel()
+        autoDismissJobs.remove(eventId)?.cancel()
+        val generation = autoDismissGenerations.merge(eventId, 1L, Long::plus) ?: 1L
         autoDismissJobs[eventId] =
             applicationScope.launch {
                 delay(ms)
-                val current = _uiState.value.events.find { it.id == eventId } ?: event
+                if (autoDismissGenerations[eventId] != generation) return@launch
+                val current = _uiState.value.events.find { it.id == eventId } ?: return@launch
+                if (current != event) return@launch
                 dismissEvent(current)
             }
+    }
+
+    private fun invalidateAutoDismiss(eventId: String) {
+        autoDismissJobs.remove(eventId)?.cancel()
+        autoDismissGenerations.merge(eventId, 1L, Long::plus)
     }
 
     private fun resolveByIdOrFallback(

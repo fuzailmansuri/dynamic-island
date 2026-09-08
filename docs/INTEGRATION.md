@@ -18,7 +18,7 @@ cp res/values/* frameworks/base/packages/SystemUI/res/values/
 ---
 
 ## Step 2: Wire Dagger Module
-In `frameworks/base/packages/SystemUI/src/com/android/systemui/ReferenceSystemUIModule.java`:
+In `frameworks/base/packages/SystemUI/src/com/android/systemui/dagger/ReferenceSystemUIModule.java`:
 
 ```java
 import com.android.systemui.axdynamicbar.dagger.DynamicIslandModule;
@@ -70,10 +70,11 @@ fun StatusBarRoot(
 ---
 
 ## Step 4: Settings UI Integration
-Copy `settings/res/` files into `packages/apps/Settings/res/`:
+Copy the tracked Settings integration snapshot:
 ```bash
-cp settings/res/xml/* packages/apps/Settings/res/xml/
-cp settings/res/values/* packages/apps/Settings/res/values/
+cp integration/settings/res/xml/dynamic_island_settings.xml packages/apps/Settings/res/xml/
+cp integration/settings/src/com/android/settings/system/DynamicIslandSettings.java packages/apps/Settings/src/com/android/settings/system/
 ```
+
 
 Include `dynamic_island_settings.xml` inside your ROM's customization dashboard (e.g. `Settings > System > Misc`).

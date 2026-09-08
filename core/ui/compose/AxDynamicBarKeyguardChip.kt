@@ -82,7 +82,13 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -95,6 +101,7 @@ import com.android.systemui.axdynamicbar.ui.KeyguardBatteryInfo
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.chips.StatusBarChipsReturnAnimations
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import android.content.Context
 import android.graphics.drawable.Drawable
 import java.util.Calendar
@@ -136,6 +143,7 @@ private fun AxDynamicBarKeyguardChipContent(
     val keyguardBatteryChipMode by viewModel.keyguardBatteryChipMode.collectAsStateWithLifecycle()
     val batteryInfo by viewModel.keyguardBatteryInfo.collectAsStateWithLifecycle()
     val isKeyguardExpanded by viewModel.isKeyguardExpanded.collectAsStateWithLifecycle()
+    val view = LocalView.current
     val touchSlop = LocalViewConfiguration.current.touchSlop
     val batteryString by viewModel.batteryString.collectAsStateWithLifecycle()
 
@@ -203,6 +211,7 @@ private fun AxDynamicBarKeyguardChipContent(
                             if (!change.pressed) {
                                 if (dragging) {
                                     change.consume()
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                                     if (totalDx > 0) viewModel.cyclePrev()
                                     else viewModel.cycleNext()
                                 }
@@ -317,6 +326,7 @@ private fun KeyguardChipBody(
     aospChipExpandable: SystemUiExpandable,
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val motionScheme = MaterialTheme.motionScheme
 
     val parts = rememberChargingParts(batteryString)
@@ -345,6 +355,7 @@ private fun KeyguardChipBody(
                     } else Modifier
                 )
                 .clickable {
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     when (event) {
                         is IslandEvent.Notification ->
                             viewModel.launchNotificationFromKeyguard(event)
@@ -356,6 +367,21 @@ private fun KeyguardChipBody(
                         is IslandEvent.KeyguardIndication,
                         is IslandEvent.AppSwitch -> { }
                         else -> viewModel.keyguardExpansion.toggle()
+                    }
+                }
+                .semantics {
+                    role = Role.Button
+                    contentDescription = when (event) {
+                        is IslandEvent.Media -> if (event.isPlaying) "Media: ${event.track}" else "Paused: ${event.track}"
+                        is IslandEvent.Notification -> event.title ?: event.appName
+                        is IslandEvent.Timer -> "Timer"
+                        is IslandEvent.Stopwatch -> "Stopwatch"
+                        is IslandEvent.Torch -> "Flashlight"
+                        is IslandEvent.AudioRecording -> "Recording"
+                        is IslandEvent.Charging -> "Charging ${event.level}%"
+                        is IslandEvent.Bluetooth -> "Bluetooth: ${event.deviceTypeLabel}"
+                        is IslandEvent.Hotspot -> "Hotspot"
+                        else -> "Dynamic Island"
                     }
                 }
                 .padding(start = SpaceSm, end = SpaceMd),
@@ -606,7 +632,14 @@ private fun KeyguardBatteryChip(
                 .background(CardBg)
                 .widthIn(min = 48.dp, max = 260.dp)
                 .padding(horizontal = SpaceMd)
-                .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                .animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())
+                .semantics {
+                    contentDescription = if (info.isCharging) {
+                        "Battery charging ${info.level}%"
+                    } else {
+                        "Battery ${info.level}%"
+                    }
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             
@@ -1098,7 +1131,7 @@ private fun ElapsedTimeText(
         )
     }
     LaunchedEffect(startTimeMs, pausedDurationMs) {
-        while (true) {
+        while (isActive) {
             delay(1000)
             elapsedMs = (System.currentTimeMillis() - startTimeMs - pausedDurationMs)
                 .coerceAtLeast(0L)
@@ -1112,11 +1145,11 @@ private fun CountdownText(event: IslandEvent.Timer, color: Color, modifier: Modi
     if (event.isPaused) {
         PillMonoLabel(stringResource(R.string.ax_dynamic_bar_paused), color, modifier)
     } else {
-        var remainingMs by remember(event.endTimeMs) {
+        var remainingMs by remember(event.id, event.endTimeMs, event.isPaused) {
             mutableLongStateOf((event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L))
         }
-        LaunchedEffect(event.endTimeMs) {
-            while (remainingMs > 0L) {
+        LaunchedEffect(event.id, event.endTimeMs, event.isPaused) {
+            while (isActive && remainingMs > 0L) {
                 delay(500)
                 remainingMs = (event.endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
             }
@@ -1130,12 +1163,12 @@ private fun StopwatchTimeText(event: IslandEvent.Stopwatch, color: Color, modifi
     if (!event.isRunning) {
         PillMonoLabel(stringResource(R.string.ax_dynamic_bar_paused), color, modifier)
     } else {
-        var elapsedMs by remember(event.startTimeMs) {
+        var elapsedMs by remember(event.id, event.startTimeMs, event.isRunning) {
             mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
         }
-        LaunchedEffect(event.startTimeMs) {
-            while (true) {
-                delay(200)
+        LaunchedEffect(event.id, event.startTimeMs, event.isRunning) {
+            while (isActive && event.isRunning) {
+                delay(1000)
                 elapsedMs = (System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L)
             }
         }

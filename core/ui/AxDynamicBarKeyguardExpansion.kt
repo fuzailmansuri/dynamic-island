@@ -21,6 +21,7 @@ import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,7 +39,7 @@ import kotlinx.coroutines.flow.stateIn
 class AxDynamicBarKeyguardExpansion
 @Inject
 constructor(
-    @Application applicationScope: CoroutineScope,
+    @Application private val applicationScope: CoroutineScope,
     private val interactor: AxDynamicBarInteractor,
 ) {
     private val _intent = MutableStateFlow(false)
@@ -90,12 +91,25 @@ constructor(
             .launchIn(applicationScope)
     }
 
+    private var collapseTimeoutJob: kotlinx.coroutines.Job? = null
+
     fun expand() {
         if (interactor.uiState.value.topEvent == null) return
         _intent.value = true
+
+        collapseTimeoutJob?.cancel()
+        val timeoutSec = interactor.settings.collapseTimeout.value
+        if (timeoutSec > 0) {
+            collapseTimeoutJob = applicationScope.launch {
+                kotlinx.coroutines.delay(timeoutSec * 1000L)
+                collapse()
+            }
+        }
     }
 
     fun collapse() {
+        collapseTimeoutJob?.cancel()
+        collapseTimeoutJob = null
         _intent.value = false
     }
 
