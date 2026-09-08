@@ -1,0 +1,367 @@
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+index daf00ecad6d..274ec6e4f51 100644
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -3239,6 +3239,29 @@
+     <string name="disable_game_default_frame_rate_title">Disable default frame rate for games</string>
+     <!-- Display settings screen, game default frame rate settings summary [CHAR LIMIT=NONE] -->
+     <string name="disable_game_default_frame_rate_summary">Disable limiting the maximum frame rate for games at <xliff:g id="frame_rate" example="60">%1$d</xliff:g> Hz.</string>
++    <!-- Display settings screen, refresh rate selector title [CHAR LIMIT=30] -->
++    <string name="refresh_rate_title">Refresh rate</string>
++    <!-- Display settings screen, refresh rate selector adaptive entry [CHAR LIMIT=30] -->
++    <string name="refresh_rate_adaptive">Adaptive</string>
++    <!-- Display settings screen, refresh rate selector fixed-rate entry [CHAR LIMIT=30] -->
++    <string name="refresh_rate_60hz">60 Hz</string>
++    <!-- Display settings screen, refresh rate selector fixed-rate entry [CHAR LIMIT=30] -->
++    <string name="refresh_rate_90hz">90 Hz</string>
++    <!-- Display settings screen, refresh rate selector fixed-rate entry [CHAR LIMIT=30] -->
++    <string name="refresh_rate_120hz">120 Hz</string>
++    <!-- Display settings screen, refresh rate selector [CHAR LIMIT=30] -->
++    <string-array name="refresh_rate_entries">
++        <item>@string/refresh_rate_adaptive</item>
++        <item>@string/refresh_rate_60hz</item>
++        <item>@string/refresh_rate_90hz</item>
++        <item>@string/refresh_rate_120hz</item>
++    </string-array>
++    <string-array name="refresh_rate_values" translatable="false">
++        <item>adaptive</item>
++        <item>60</item>
++        <item>90</item>
++        <item>120</item>
++    </string-array>
+     <!-- Display settings screen, peak refresh rate settings title [CHAR LIMIT=30] -->
+     <string name="peak_refresh_rate_title">Smooth display</string>
+     <!-- Display settings screen, peak refresh rate settings summary [CHAR LIMIT=NONE] -->
+diff --git a/res/values/yaap_arrays.xml b/res/values/yaap_arrays.xml
+index 55ecec23c7b..e160c3a8280 100644
+--- a/res/values/yaap_arrays.xml
++++ b/res/values/yaap_arrays.xml
+@@ -337,4 +337,103 @@
+         <item>1</item>
+         <item>2</item>
+     </string-array>
++
++    <!-- Emoji style -->
++    <string-array name="emoji_style_entries">
++        <item>@string/emoji_style_stock</item>
++        <item>@string/emoji_style_ios</item>
++        <item>@string/emoji_style_samsung</item>
++        <item>@string/emoji_style_swiftui</item>
++        <item>@string/emoji_style_facebook</item>
++    </string-array>
++
++    <string-array name="emoji_style_values" translatable="false">
++        <item>android</item>
++        <item>ios</item>
++        <item>samsung</item>
++        <item>swiftui</item>
++        <item>facebook</item>
++    </string-array>
++
++    <!-- Dynamic Island Cutout Type -->
++    <string-array name="dynamic_island_cutout_type_entries" translatable="false">
++        <item>@string/dynamic_island_cutout_center</item>
++        <item>@string/dynamic_island_cutout_left</item>
++        <item>@string/dynamic_island_cutout_right</item>
++        <item>@string/dynamic_island_cutout_pill</item>
++    </string-array>
++
++    <string-array name="dynamic_island_cutout_type_values" translatable="false">
++        <item>center</item>
++        <item>left</item>
++        <item>right</item>
++        <item>pill</item>
++    </string-array>
++
++    <!-- Dynamic Island Keyguard Battery Chip Mode -->
++    <string-array name="dynamic_island_keyguard_battery_chip_entries" translatable="false">
++        <item>@string/dynamic_island_keyguard_battery_chip_disabled</item>
++        <item>@string/dynamic_island_keyguard_battery_chip_charging</item>
++        <item>@string/dynamic_island_keyguard_battery_chip_always</item>
++    </string-array>
++
++    <string-array name="dynamic_island_keyguard_battery_chip_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++    </string-array>
++
++    <!-- Dynamic Island Tap Action -->
++    <string-array name="dynamic_island_tap_action_entries" translatable="false">
++        <item>@string/dynamic_island_action_open_app</item>
++        <item>@string/dynamic_island_action_expand_island</item>
++        <item>@string/dynamic_island_action_expand_shade</item>
++    </string-array>
++
++    <string-array name="dynamic_island_tap_action_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++    </string-array>
++
++    <!-- Dynamic Island Long Press Action -->
++    <string-array name="dynamic_island_long_press_action_entries" translatable="false">
++        <item>@string/dynamic_island_action_open_app</item>
++        <item>@string/dynamic_island_action_expand_island</item>
++        <item>@string/dynamic_island_action_expand_shade</item>
++    </string-array>
++
++    <string-array name="dynamic_island_long_press_action_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++    </string-array>
++
++    <!-- Dynamic Island Animation Style -->
++    <string-array name="dynamic_island_animation_style_entries" translatable="false">
++        <item>@string/dynamic_island_animation_style_spring</item>
++        <item>@string/dynamic_island_animation_style_fluid</item>
++        <item>@string/dynamic_island_animation_style_snappy</item>
++    </string-array>
++
++    <string-array name="dynamic_island_animation_style_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++    </string-array>
++
++    <!-- Dynamic Island Collapse Timeout -->
++    <string-array name="dynamic_island_collapse_timeout_entries" translatable="false">
++        <item>@string/dynamic_island_collapse_timeout_disabled</item>
++        <item>@string/dynamic_island_collapse_timeout_3s</item>
++        <item>@string/dynamic_island_collapse_timeout_5s</item>
++        <item>@string/dynamic_island_collapse_timeout_10s</item>
++    </string-array>
++
++    <string-array name="dynamic_island_collapse_timeout_values" translatable="false">
++        <item>0</item>
++        <item>3</item>
++        <item>5</item>
++        <item>10</item>
++    </string-array>
+ </resources>
+diff --git a/res/values/yaap_strings.xml b/res/values/yaap_strings.xml
+index a3dc7ecc69c..624654b8e48 100644
+--- a/res/values/yaap_strings.xml
++++ b/res/values/yaap_strings.xml
+@@ -852,4 +852,100 @@
+ 
+     <!-- Expressive QR -->
+     <string name="wifi_qr_code_animation_control">pause the animation</string>
++
++    <!-- Emoji style -->
++    <string name="emoji_style_title">Emoji style</string>
++    <string name="emoji_style_summary">Choose the system emoji pack without changing text fonts</string>
++    <string name="emoji_style_stock">Stock</string>
++    <string name="emoji_style_ios">iOS</string>
++    <string name="emoji_style_samsung">Samsung</string>
++    <string name="emoji_style_swiftui">SwiftUI</string>
++    <string name="emoji_style_facebook">Facebook</string>
++
++    <!-- Dynamic Island -->
++    <string name="dynamic_island_title">Dynamic Island</string>
++    <string name="dynamic_island_summary">Display fluid interactive notifications and telemetry around camera cutout</string>
++    <string name="dynamic_island_enabled_title">Enable Dynamic Island</string>
++    <string name="dynamic_island_enabled_summary">Show dynamic island pill for ongoing events, media, and alerts</string>
++
++    <!-- Dynamic Island - Events -->
++    <string name="dynamic_island_events_category_title">Active Events</string>
++    <string name="dynamic_island_event_media_title">Media playback &amp; waveform</string>
++    <string name="dynamic_island_event_media_summary">Show album art, audio visualizer, and playback state</string>
++    <string name="dynamic_island_event_calls_title">Ongoing and incoming calls</string>
++    <string name="dynamic_island_event_calls_summary">Show active and incoming calls</string>
++    <string name="dynamic_island_event_ongoing_title">Ongoing activity chips</string>
++    <string name="dynamic_island_event_ongoing_summary">Show Android ongoing activity chips and promoted ongoing activities</string>
++    <string name="dynamic_island_event_battery_title">Charging and battery telemetry</string>
++    <string name="dynamic_island_event_battery_summary">Show charging status, wattage, and low battery alerts</string>
++    <string name="dynamic_island_event_timers_title">Timers and stopwatches</string>
++    <string name="dynamic_island_event_timers_summary">Display active clock timer countdowns and stopwatch counters</string>
++    <string name="dynamic_island_event_torch_title">Flashlight indicator</string>
++    <string name="dynamic_island_event_torch_summary">Display flashlight status indicator and quick toggle</string>
++    <string name="dynamic_island_event_biometrics_title">Face and fingerprint unlock</string>
++    <string name="dynamic_island_event_biometrics_summary">Show biometric authentication and lock/unlock feedback</string>
++    <string name="dynamic_island_event_recording_title">Screen and audio recording</string>
++    <string name="dynamic_island_event_recording_summary">Show active screen recorder or microphone status chip</string>
++    <string name="dynamic_island_event_notification_title">App notifications</string>
++    <string name="dynamic_island_event_notification_summary">Show heads up and alerts in dynamic island</string>
++
++    <!-- Dynamic Island - Actions & Gestures -->
++    <string name="dynamic_island_gestures_category_title">Gestures &amp; Interactions</string>
++    <string name="dynamic_island_tap_action_title">Tap action</string>
++    <string name="dynamic_island_long_press_action_title">Long press action</string>
++    <string name="dynamic_island_action_open_app">Open application</string>
++    <string name="dynamic_island_action_expand_island">Expand island panel</string>
++    <string name="dynamic_island_action_expand_shade">Expand notification shade</string>
++    <string name="dynamic_island_swipe_dismiss_title">Swipe to dismiss</string>
++    <string name="dynamic_island_swipe_dismiss_summary">Allow swiping items away in the expanded panel</string>
++
++    <!-- Dynamic Island - Behavior & Appearance -->
++    <string name="dynamic_island_appearance_category_title">Behavior &amp; Appearance</string>
++    <string name="dynamic_island_landscape_mode_title">Show in landscape</string>
++    <string name="dynamic_island_landscape_mode_summary">Display island when device is in landscape orientation</string>
++    <string name="dynamic_island_suppress_fullscreen_title">Hide in fullscreen</string>
++    <string name="dynamic_island_suppress_fullscreen_summary">Suppress island when apps are in immersive fullscreen</string>
++    <string name="dynamic_island_animation_style_title">Animation style</string>
++    <string name="dynamic_island_animation_style_spring">Spring physics</string>
++    <string name="dynamic_island_animation_style_fluid">Fluid</string>
++    <string name="dynamic_island_animation_style_snappy">Snappy</string>
++    <string name="dynamic_island_collapse_timeout_title">Auto collapse timeout</string>
++    <string name="dynamic_island_collapse_timeout_disabled">Never</string>
++    <string name="dynamic_island_collapse_timeout_3s">3 seconds</string>
++    <string name="dynamic_island_collapse_timeout_5s">5 seconds</string>
++    <string name="dynamic_island_collapse_timeout_10s">10 seconds</string>
++    <string name="dynamic_island_scale_title">Island scale</string>
++    <string name="dynamic_island_scale_summary">Choose a size from 70% to 130%</string>
++
++    <!-- Dynamic Island - Keyguard -->
++    <string name="dynamic_island_keyguard_category_title">Lock Screen &amp; Keyguard</string>
++    <string name="dynamic_island_keyguard_enabled_title">Show on lock screen</string>
++    <string name="dynamic_island_keyguard_enabled_summary">Display status chips and ongoing activity on the lock screen</string>
++    <string name="dynamic_island_keyguard_battery_chip_title">Lock screen battery chip</string>
++    <string name="dynamic_island_keyguard_battery_chip_disabled">Disabled</string>
++    <string name="dynamic_island_keyguard_battery_chip_charging">While charging only</string>
++    <string name="dynamic_island_keyguard_battery_chip_always">Always show</string>
++
++    <!-- Dynamic Island - Cutout -->
++    <string name="dynamic_island_cutout_category_title">Cutout Adaptability &amp; Positioning</string>
++    <string name="dynamic_island_cutout_type_title">Camera cutout position</string>
++    <string name="dynamic_island_cutout_center">Center Punch-Hole</string>
++    <string name="dynamic_island_cutout_left">Left Corner</string>
++    <string name="dynamic_island_cutout_right">Right Corner</string>
++    <string name="dynamic_island_cutout_pill">Pill Cutout</string>
++    <string name="dynamic_island_width_title">Island width offset</string>
++    <string name="dynamic_island_width_summary">Adjust from -50 dp to +100 dp</string>
++    <string name="dynamic_island_height_title">Island height offset</string>
++    <string name="dynamic_island_height_summary">Adjust from -50 dp to +100 dp</string>
++    <string name="dynamic_island_offset_x_title">Horizontal position offset</string>
++    <string name="dynamic_island_offset_x_summary">Adjust from -50 dp to +50 dp</string>
++    <string name="dynamic_island_offset_y_title">Vertical position offset</string>
++    <string name="dynamic_island_offset_y_summary">Adjust from -50 dp to +50 dp</string>
++    <string name="dynamic_island_hide_text_behind_cutout_title">Hide text behind camera cutout</string>
++    <string name="dynamic_island_hide_text_behind_cutout_summary">Pad out active content so text and icons never clip under the camera lens</string>
++    <string name="dynamic_island_reset_title">Reset Dynamic Island</string>
++    <string name="dynamic_island_reset_summary">Restore the default appearance, behavior, and event choices</string>
++    <string name="dynamic_island_reset_dialog_title">Reset Dynamic Island settings?</string>
++    <string name="dynamic_island_reset_dialog_message">All Dynamic Island customizations will return to their defaults.</string>
++    <string name="dynamic_island_reset_confirm">Reset</string>
+ </resources>
+diff --git a/res/xml/display_settings.xml b/res/xml/display_settings.xml
+index 28609088167..6020b7885a9 100644
+--- a/res/xml/display_settings.xml
++++ b/res/xml/display_settings.xml
+@@ -196,11 +196,13 @@
+             android:summary="@string/display_white_balance_summary"
+             settings:controller="com.android.settings.display.DisplayWhiteBalancePreferenceController"/>
+ 
+-        <SwitchPreferenceCompat
+-            android:key="peak_refresh_rate"
+-            android:title="@string/peak_refresh_rate_title"
+-            android:summary="@string/peak_refresh_rate_summary"
+-            settings:controller="com.android.settings.display.PeakRefreshRatePreferenceController"/>
++        <ListPreference
++            android:key="refresh_rate"
++            android:title="@string/refresh_rate_title"
++            android:summary="%s"
++            android:entries="@array/refresh_rate_entries"
++            android:entryValues="@array/refresh_rate_values"
++            settings:controller="com.android.settings.display.RefreshRatePreferenceController"/>
+ 
+         <SwitchPreferenceCompat
+             android:key="disable_vrr"
+diff --git a/res/xml/yaap_settings_misc.xml b/res/xml/yaap_settings_misc.xml
+index 72a562c871e..df1b3480d55 100644
+--- a/res/xml/yaap_settings_misc.xml
++++ b/res/xml/yaap_settings_misc.xml
+@@ -44,4 +44,20 @@
+         android:title="@string/cert_overlay_title"
+         android:summary="@string/cert_overlay_summary" />
+ 
++    <!-- Emoji style -->
++    <ListPreference
++        android:key="emoji_style"
++        android:title="@string/emoji_style_title"
++        android:summary="%s"
++        android:entries="@array/emoji_style_entries"
++        android:entryValues="@array/emoji_style_values"
++        android:defaultValue="android" />
++
++    <!-- Dynamic Island -->
++    <Preference
++        android:key="dynamic_island_settings"
++        android:title="@string/dynamic_island_title"
++        android:summary="@string/dynamic_island_summary"
++        android:fragment="com.android.settings.system.DynamicIslandSettings" />
++
+ </PreferenceScreen>
+diff --git a/src/com/android/settings/system/MiscSettings.java b/src/com/android/settings/system/MiscSettings.java
+index cf63c824344..56e89bcf8c4 100644
+--- a/src/com/android/settings/system/MiscSettings.java
++++ b/src/com/android/settings/system/MiscSettings.java
+@@ -22,6 +22,7 @@ import android.content.Context;
+ import android.content.SharedPreferences;
+ import android.os.Bundle;
+ import android.os.RemoteException;
++import android.os.SystemProperties;
+ import android.os.ServiceManager;
+ import android.os.UserHandle;
+ import android.widget.Toast;
+@@ -30,6 +31,7 @@ import com.android.internal.logging.nano.MetricsProto;
+ import com.android.settings.dashboard.DashboardFragment;
+ import com.android.settings.R;
+ import com.android.settings.search.BaseSearchIndexProvider;
++import com.android.settingslib.development.SystemPropPoker;
+ import com.android.settingslib.search.SearchIndexable;
+ 
+ import androidx.preference.ListPreference;
+@@ -47,12 +49,16 @@ public class MiscSettings extends DashboardFragment implements
+ 
+     public static final String MASK_ACCOUNT_KEY = "mask_google_account";
+     private static final String TRANSPORT_SELECTOR_KEY = "transport_selector";
++    private static final String EMOJI_STYLE_KEY = "emoji_style";
++    private static final String EMOJI_STYLE_PROPERTY = "persist.sys.yaap_emoji_style";
++    private static final String EMOJI_STYLE_DEFAULT = "android";
+     private static final String SHARED_PREFS_NAME = "misc_settings_prefs";
+ 
+     private SharedPreferences mSharedPreferences;
+     private IBackupManager mBackupManager;
+     private Toast mToast;
+     private ListPreference mTransportSelector;
++    private ListPreference mEmojiStyle;
+     private SwitchPreferenceCompat mMaskAccountToggle;
+ 
+     @Override
+@@ -85,6 +91,17 @@ public class MiscSettings extends DashboardFragment implements
+             mTransportSelector.setVisible(false);
+         }
+ 
++        mEmojiStyle = findPreference(EMOJI_STYLE_KEY);
++        final String emojiStyle = SystemProperties.get(EMOJI_STYLE_PROPERTY, EMOJI_STYLE_DEFAULT);
++        if (mEmojiStyle.findIndexOfValue(emojiStyle) == -1) {
++            SystemProperties.set(EMOJI_STYLE_PROPERTY, EMOJI_STYLE_DEFAULT);
++            mEmojiStyle.setValue(EMOJI_STYLE_DEFAULT);
++        } else {
++            mEmojiStyle.setValue(emojiStyle);
++        }
++        mEmojiStyle.setSummary(mEmojiStyle.getEntry());
++        mEmojiStyle.setOnPreferenceChangeListener(this);
++
+         mMaskAccountToggle = findPreference(MASK_ACCOUNT_KEY);
+         mMaskAccountToggle.setChecked(getSharedPrefs().getBoolean(MASK_ACCOUNT_KEY, false));
+         mMaskAccountToggle.setOnPreferenceChangeListener(this);
+@@ -109,6 +126,16 @@ public class MiscSettings extends DashboardFragment implements
+                 return false;
+             }
+             return true;
++        } else if (preference == mEmojiStyle) {
++            final String value = (String) objValue;
++            if (mEmojiStyle.findIndexOfValue(value) == -1) {
++                return false;
++            }
++            SystemProperties.set(EMOJI_STYLE_PROPERTY, value);
++            SystemPropPoker.getInstance().poke();
++            final int index = mEmojiStyle.findIndexOfValue(value);
++            mEmojiStyle.setSummary(mEmojiStyle.getEntries()[index]);
++            return true;
+         } else if (preference == mMaskAccountToggle) {
+             final Boolean value = (Boolean) objValue;
+             getSharedPrefs().edit().putBoolean(MASK_ACCOUNT_KEY, value).commit();

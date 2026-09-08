@@ -1,0 +1,633 @@
+diff --git a/packages/SystemUI/aconfig/systemui.aconfig b/packages/SystemUI/aconfig/systemui.aconfig
+index 23afab1ef4e4..5b17d896a548 100644
+--- a/packages/SystemUI/aconfig/systemui.aconfig
++++ b/packages/SystemUI/aconfig/systemui.aconfig
+@@ -89,6 +89,7 @@ flag {
+     namespace: "systemui"
+     description: "Enable blur on more systemui surfaces (volume and power)"
+     bug: "496223564"
++    is_fixed_read_only: true
+ }
+ 
+ flag {
+@@ -937,6 +938,7 @@ flag {
+     namespace: "systemui"
+     description: "Enable lockscreen blur for notifications"
+     bug: "496207304"
++    is_fixed_read_only: true
+ }
+ 
+ flag {
+@@ -1176,6 +1178,7 @@ flag {
+     namespace: "systemui"
+     description: "Enables transparency on the Notification Shade."
+     bug: "392187268"
++    is_fixed_read_only: true
+ }
+ 
+ flag {
+diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewControllerTest.kt b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewControllerTest.kt
+index 024093425b69..22fb705b3862 100644
+--- a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewControllerTest.kt
++++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewControllerTest.kt
+@@ -34,6 +34,7 @@ import com.android.keyguard.KeyguardUpdateMonitorCallback
+ import com.android.keyguard.logging.KeyguardLogger
+ import com.android.systemui.Flags
+ import com.android.systemui.SysuiTestCase
++import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
+ import com.android.systemui.communal.data.repository.fakeCommunalSceneRepository
+ import com.android.systemui.communal.domain.interactor.communalSceneInteractor
+ import com.android.systemui.communal.shared.model.CommunalScenes
+@@ -143,6 +144,8 @@ class KeyguardStatusBarViewControllerTest : SysuiTestCase() {
+ 
+     @Mock private lateinit var statusOverlayHoverListenerFactory: StatusOverlayHoverListenerFactory
+ 
++    @Mock private lateinit var axDynamicBarChipViewModel: AxDynamicBarChipViewModel
++
+     private lateinit var shadeViewStateProvider: TestShadeViewStateProvider
+ 
+     private lateinit var keyguardStatusBarView: KeyguardStatusBarView
+@@ -218,6 +221,7 @@ class KeyguardStatusBarViewControllerTest : SysuiTestCase() {
+             kosmos.occludedToLockscreenTransitionViewModel,
+             kosmos.dreamViewModel,
+             kosmos.keyguardInteractor,
++            axDynamicBarChipViewModel,
+         )
+     }
+ 
+diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRootTest.kt b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRootTest.kt
+index 701e9d524638..d7527ff17a41 100644
+--- a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRootTest.kt
++++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRootTest.kt
+@@ -32,6 +32,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
+ import androidx.test.filters.SmallTest
+ import com.android.systemui.Flags
+ import com.android.systemui.SysuiTestCase
++import com.android.systemui.axdynamicbar.domain.AxDynamicBarInteractor
++import com.android.systemui.axdynamicbar.domain.AxDynamicBarSettings
++import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
+ import com.android.systemui.clock.ui.viewmodel.clockViewModelFactory
+ import com.android.systemui.kosmos.testScope
+ import com.android.systemui.plugins.fakeDarkIconDispatcher
+@@ -49,6 +52,7 @@ import com.android.systemui.statusbar.ui.viewmodel.statusBarRegionSamplingViewMo
+ import com.android.systemui.testKosmosNew
+ import com.android.wm.shell.scrolltotop.fakeScrollToTop
+ import com.google.common.truth.Truth.assertThat
++import kotlinx.coroutines.flow.MutableStateFlow
+ import org.junit.Before
+ import org.junit.Rule
+ import org.junit.Test
+@@ -70,11 +74,19 @@ class StatusBarRootTest : SysuiTestCase() {
+     private val darkIconManagerFactory = mock<DarkIconManager.Factory>()
+     private val tintedIconManagerFactory = mock<TintedIconManager.Factory>()
+     private val homeStatusBarViewBinder = mock<HomeStatusBarViewBinder>()
++    private val axDynamicBarChipViewModel = mock<AxDynamicBarChipViewModel>()
++    private val axDynamicBarInteractor = mock<AxDynamicBarInteractor>()
++    private val axDynamicBarSettings = mock<AxDynamicBarSettings>()
++    private val isFullscreen = MutableStateFlow(false)
+ 
+     @Before
+     fun setUp() {
+         whenever(darkIconManagerFactory.create(any(), any(), any())).thenReturn(mock())
+         whenever(tintedIconManagerFactory.create(any(), any())).thenReturn(mock())
++        whenever(axDynamicBarChipViewModel.interactor).thenReturn(axDynamicBarInteractor)
++        whenever(axDynamicBarChipViewModel.cutoutType).thenReturn(MutableStateFlow("center"))
++        whenever(axDynamicBarInteractor.settings).thenReturn(axDynamicBarSettings)
++        whenever(axDynamicBarSettings.isEnabled).thenReturn(MutableStateFlow(false))
+     }
+ 
+     @Test
+@@ -133,6 +145,8 @@ class StatusBarRootTest : SysuiTestCase() {
+                 eventAnimationInteractor = kosmos.systemStatusEventAnimationInteractor,
+                 statusBarRegionSamplingViewModelFactory =
+                     kosmos.statusBarRegionSamplingViewModelFactory,
++                axDynamicBarChipViewModel = axDynamicBarChipViewModel,
++                isFullscreen = isFullscreen,
+                 onViewCreated = {},
+                 modifier = Modifier.testTag(STATUS_BAR_ROOT_TAG),
+             )
+diff --git a/packages/SystemUI/res/values/dimens.xml b/packages/SystemUI/res/values/dimens.xml
+index 267d2412c59d..4b2c75237977 100644
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -200,14 +200,14 @@
+     <dimen name="status_bar_wifi_inout_container_size">17sp</dimen>
+     <!-- Size of the view displaying the wifi signal icon in the status bar. This value should
+         match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_wifi_signal_size">15sp</dimen>
++    <dimen name="status_bar_wifi_signal_size">17.6sp</dimen>
+     <dimen name="status_bar_wifi_signal_height_updated">12sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile inout icon in the status bar. -->
+     <dimen name="status_bar_mobile_inout_container_size">17sp</dimen>
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+         match the core/status_bar_system_icon_size and change to sp unit -->
+-    <dimen name="status_bar_mobile_signal_size">15sp</dimen>
++    <dimen name="status_bar_mobile_signal_size">17.6sp</dimen>
+     <dimen name="status_bar_mobile_signal_size_updated">12sp</dimen>
+ 
+     <!-- Size of the view displaying the mobile signal icon in the status bar. This value should
+@@ -250,7 +250,7 @@
+     <dimen name="status_bar_airplane_spacer_width">4sp</dimen>
+ 
+     <!-- Spacing between system icons. -->
+-    <dimen name="status_bar_system_icon_spacing">0sp</dimen>
++    <dimen name="status_bar_system_icon_spacing">4sp</dimen>
+ 
+     <!-- The amount to scale each of the status bar icons by. A value of 1 means no scaling. -->
+     <item name="status_bar_icon_scale_factor" format="float" type="dimen">1.0</item>
+diff --git a/packages/SystemUI/src/com/android/systemui/dagger/ReferenceSystemUIModule.java b/packages/SystemUI/src/com/android/systemui/dagger/ReferenceSystemUIModule.java
+index 9b2c98685f8c..cb6165975a32 100644
+--- a/packages/SystemUI/src/com/android/systemui/dagger/ReferenceSystemUIModule.java
++++ b/packages/SystemUI/src/com/android/systemui/dagger/ReferenceSystemUIModule.java
+@@ -190,6 +190,7 @@ import javax.inject.Provider;
+         ActionCornerModule.class,
+         CursorPositionModule.class,
+         ContextualCursorModule.class,
++        com.android.systemui.axdynamicbar.dagger.DynamicIslandModule.class,
+ }, subcomponents = {
+         ReferenceSysUIDisplaySubcomponent.class
+ })
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/DefaultKeyguardBlueprint.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/DefaultKeyguardBlueprint.kt
+index a6037ae85d6c..898976f5171c 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/DefaultKeyguardBlueprint.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/DefaultKeyguardBlueprint.kt
+@@ -24,6 +24,7 @@ import com.android.systemui.keyguard.ui.view.layout.sections.AccessibilityAction
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodBurnInSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodNotificationIconsSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodPromotedNotificationSection
++import com.android.systemui.keyguard.ui.view.layout.sections.AxDynamicBarKeyguardChipSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.ClockSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.DefaultDeviceEntrySection
+ import com.android.systemui.keyguard.ui.view.layout.sections.DefaultIndicationAreaSection
+@@ -67,6 +68,7 @@ constructor(
+     aodNotificationIconsSection: AodNotificationIconsSection,
+     aodBurnInSection: AodBurnInSection,
+     clockSection: ClockSection,
++    axDynamicBarKeyguardChipSection: AxDynamicBarKeyguardChipSection,
+     smartspaceSection: SmartspaceSection,
+     keyguardWeatherViewSection: KeyguardWeatherViewSection,
+     keyguardSliceViewSection: KeyguardSliceViewSection,
+@@ -78,6 +80,7 @@ constructor(
+         listOfNotNull(
+             accessibilityActionsSection,
+             defaultIndicationAreaSection,
++            axDynamicBarKeyguardChipSection,
+             defaultShortcutsSection,
+             defaultAmbientIndicationAreaSection.getOrNull(),
+             defaultSettingsPopupMenuSection,
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/SplitShadeKeyguardBlueprint.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/SplitShadeKeyguardBlueprint.kt
+index b346e79d2b78..e178d391a745 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/SplitShadeKeyguardBlueprint.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/blueprints/SplitShadeKeyguardBlueprint.kt
+@@ -20,10 +20,12 @@ package com.android.systemui.keyguard.ui.view.layout.blueprints
+ import com.android.systemui.dagger.SysUISingleton
+ import com.android.systemui.keyguard.shared.model.KeyguardBlueprint
+ import com.android.systemui.keyguard.shared.model.KeyguardSection
++import com.android.systemui.axdynamicbar.ui.compose.AxDynamicBarKeyguardChip
+ import com.android.systemui.keyguard.ui.view.layout.sections.AccessibilityActionsSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodBurnInSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodNotificationIconsSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.AodPromotedNotificationSection
++import com.android.systemui.keyguard.ui.view.layout.sections.AxDynamicBarKeyguardChipSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.ClockSection
+ import com.android.systemui.keyguard.ui.view.layout.sections.DefaultDeviceEntrySection
+ import com.android.systemui.keyguard.ui.view.layout.sections.DefaultIndicationAreaSection
+@@ -72,6 +74,7 @@ constructor(
+     smartspaceSection: SmartspaceSection,
+     mediaSection: SplitShadeMediaSection,
+     keyguardWeatherViewSection: KeyguardWeatherViewSection,
++    axDynamicBarKeyguardChipSection: AxDynamicBarKeyguardChipSection,
+ ) : KeyguardBlueprint {
+     override val id: String = ID
+ 
+@@ -80,6 +83,7 @@ constructor(
+         listOfNotNull(
+             accessibilityActionsSection,
+             defaultIndicationAreaSection,
++            axDynamicBarKeyguardChipSection,
+             defaultShortcutsSection,
+             defaultAmbientIndicationAreaSection.getOrNull(),
+             defaultSettingsPopupMenuSection,
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java b/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java
+index 84d11ade0d04..9383c76c0a80 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/KeyguardIndicationController.java
+@@ -158,6 +158,31 @@ public class KeyguardIndicationController {
+     public static final String TAG = "KeyguardIndication";
+     private static final boolean DEBUG_CHARGING_SPEED = false;
+ 
++    // Dynamic Island indication types
++    public interface IndicationListener {
++        void onIndication(int type, @Nullable CharSequence text);
++    }
++    public static final int AX_TYPE_BIOMETRIC = 0;
++    public static final int AX_TYPE_TRANSIENT = 1;
++    public static final int AX_TYPE_TRUST = 2;
++    public static final int AX_TYPE_DISCLOSURE = 3;
++    public static final int AX_TYPE_OWNER_INFO = 4;
++    public static final int AX_TYPE_ALIGNMENT = 5;
++    public static final int AX_TYPE_PERSISTENT_UNLOCK = 6;
++    private final java.util.List<IndicationListener> mIndicationListeners =
++            new java.util.concurrent.CopyOnWriteArrayList<>();
++    public void addIndicationListener(IndicationListener listener) {
++        mIndicationListeners.add(listener);
++    }
++    public void removeIndicationListener(IndicationListener listener) {
++        mIndicationListeners.remove(listener);
++    }
++    private void notifyIndicationListeners(int type, @Nullable CharSequence text) {
++        for (IndicationListener listener : mIndicationListeners) {
++            listener.onIndication(type, text);
++        }
++    }
++
+     private static final int MSG_SHOW_ACTION_TO_UNLOCK = 1;
+     private static final int MSG_RESET_ERROR_MESSAGE_ON_SCREEN_ON = 2;
+     private static final long TRANSIENT_BIOMETRIC_ERROR_TIMEOUT = 1300;
+@@ -214,6 +239,9 @@ public class KeyguardIndicationController {
+     private BiometricSourceType mBiometricMessageSource;
+     private ColorStateList mInitialTextColorState;
+     private boolean mVisible;
++    private boolean mSuppressIndication;
++    private final java.util.Set<Object> mIndicationSuppressionOwners =
++            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+     private boolean mOrganizationOwnedDevice;
+ 
+     // these all assume the device is plugged in (wired/wireless/docked) AND chargingOrFull:
+@@ -598,11 +626,13 @@ public class KeyguardIndicationController {
+                                         .setTextColor(getInitialTextColorState())
+                                         .build(),
+                                 /* updateImmediately */ false);
++                        notifyIndicationListeners(AX_TYPE_DISCLOSURE, disclosure);
+                     }
+                 });
+             });
+         } else {
+             mRotateTextViewController.hideIndication(INDICATION_TYPE_DISCLOSURE);
++            notifyIndicationListeners(AX_TYPE_DISCLOSURE, null);
+         }
+     }
+ 
+@@ -654,8 +684,10 @@ public class KeyguardIndicationController {
+                                     .setTextColor(getInitialTextColorState())
+                                     .build(),
+                             false);
++                    notifyIndicationListeners(AX_TYPE_OWNER_INFO, finalInfo);
+                 } else {
+                     mRotateTextViewController.hideIndication(INDICATION_TYPE_OWNER_INFO);
++                    notifyIndicationListeners(AX_TYPE_OWNER_INFO, null);
+                 }
+             });
+         });
+@@ -772,9 +804,11 @@ public class KeyguardIndicationController {
+                             .build(),
+                     true
+             );
++            notifyIndicationListeners(AX_TYPE_BIOMETRIC, mBiometricMessage);
+         } else {
+             mRotateTextViewController.hideIndication(
+                     INDICATION_TYPE_BIOMETRIC_MESSAGE);
++            notifyIndicationListeners(AX_TYPE_BIOMETRIC, null);
+         }
+         if (!TextUtils.isEmpty(mBiometricMessageFollowUp)) {
+             mRotateTextViewController.updateIndication(
+@@ -801,8 +835,10 @@ public class KeyguardIndicationController {
+ 
+         if (!TextUtils.isEmpty(mTransientIndication)) {
+             mRotateTextViewController.showTransient(mTransientIndication);
++            notifyIndicationListeners(AX_TYPE_TRANSIENT, mTransientIndication);
+         } else {
+             mRotateTextViewController.hideTransient();
++            notifyIndicationListeners(AX_TYPE_TRANSIENT, null);
+         }
+     }
+ 
+@@ -817,6 +853,7 @@ public class KeyguardIndicationController {
+                             .setTextColor(getInitialTextColorState())
+                             .build(),
+                     true);
++            notifyIndicationListeners(AX_TYPE_TRUST, trustGrantedIndication);
+             hideBiometricMessage();
+         } else if (!TextUtils.isEmpty(trustManagedIndication)
+                 && mKeyguardUpdateMonitor.getUserTrustIsManaged(userId)
+@@ -828,8 +865,10 @@ public class KeyguardIndicationController {
+                             .setTextColor(getInitialTextColorState())
+                             .build(),
+                     false);
++            notifyIndicationListeners(AX_TYPE_TRUST, trustManagedIndication);
+         } else {
+             mRotateTextViewController.hideIndication(INDICATION_TYPE_TRUST);
++            notifyIndicationListeners(AX_TYPE_TRUST, null);
+         }
+     }
+ 
+@@ -843,8 +882,10 @@ public class KeyguardIndicationController {
+                                     mContext.getColor(R.color.misalignment_text_color)))
+                             .build(),
+                     true);
++            notifyIndicationListeners(AX_TYPE_ALIGNMENT, mAlignmentIndication);
+         } else {
+             mRotateTextViewController.hideIndication(INDICATION_TYPE_ALIGNMENT);
++            notifyIndicationListeners(AX_TYPE_ALIGNMENT, null);
+         }
+     }
+ 
+@@ -857,8 +898,10 @@ public class KeyguardIndicationController {
+                             .setTextColor(getInitialTextColorState())
+                             .build(),
+                     true);
++            notifyIndicationListeners(AX_TYPE_PERSISTENT_UNLOCK, mPersistentUnlockMessage);
+         } else {
+             mRotateTextViewController.hideIndication(INDICATION_TYPE_PERSISTENT_UNLOCK_MESSAGE);
++            notifyIndicationListeners(AX_TYPE_PERSISTENT_UNLOCK, null);
+         }
+     }
+ 
+@@ -970,6 +1013,33 @@ public class KeyguardIndicationController {
+         return UserHandle.USER_NULL;
+     }
+ 
++    public void setSuppressIndication(boolean suppress) {
++        setSuppressIndication(this, suppress);
++    }
++
++    public void setSuppressIndication(Object owner, boolean suppress) {
++        if (suppress) {
++            mIndicationSuppressionOwners.add(owner);
++        } else {
++            mIndicationSuppressionOwners.remove(owner);
++        }
++        boolean wasSuppressed = mSuppressIndication;
++        mSuppressIndication = !mIndicationSuppressionOwners.isEmpty();
++        if (wasSuppressed == mSuppressIndication) {
++            return;
++        }
++        if (mTopIndicationView != null) {
++            mTopIndicationView.setVisibility(mSuppressIndication ? View.INVISIBLE : View.VISIBLE);
++        }
++        if (mLockScreenIndicationView != null) {
++            mLockScreenIndicationView.setVisibility(
++                    mSuppressIndication ? View.INVISIBLE : View.VISIBLE);
++        }
++        if (!mSuppressIndication && mVisible) {
++            updateDeviceEntryIndication(false);
++        }
++    }
++
+     /**
+      * Sets the visibility of keyguard bottom area, and if the indications are updatable.
+      *
+@@ -985,6 +1055,14 @@ public class KeyguardIndicationController {
+                 hideTransientIndication();
+             }
+             updateDeviceEntryIndication(false);
++            if (mSuppressIndication) {
++                if (mTopIndicationView != null) {
++                    mTopIndicationView.setVisibility(View.INVISIBLE);
++                }
++                if (mLockScreenIndicationView != null) {
++                    mLockScreenIndicationView.setVisibility(View.INVISIBLE);
++                }
++            }
+         } else {
+             // If we unlock and return to keyguard quickly, previous error should not be shown
+             hideTransientIndication();
+@@ -1178,7 +1256,7 @@ public class KeyguardIndicationController {
+         if (mDozing) {
+             boolean useMisalignmentColor = false;
+             mLockScreenIndicationView.setVisibility(View.GONE);
+-            mTopIndicationView.setVisibility(VISIBLE);
++            mTopIndicationView.setVisibility(mSuppressIndication ? View.INVISIBLE : VISIBLE);
+             CharSequence newIndication;
+             if (!TextUtils.isEmpty(mBiometricMessage)) {
+                 newIndication = mBiometricMessage; // note: doesn't show mBiometricMessageFollowUp
+@@ -1226,7 +1304,7 @@ public class KeyguardIndicationController {
+         // LOCK SCREEN
+         mTopIndicationView.setVisibility(GONE);
+         mTopIndicationView.setText(null);
+-        mLockScreenIndicationView.setVisibility(View.VISIBLE);
++        mLockScreenIndicationView.setVisibility(mSuppressIndication ? View.INVISIBLE : View.VISIBLE);
+         updateLockScreenIndications(animate, getCurrentUser());
+     }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/NotificationListener.java b/packages/SystemUI/src/com/android/systemui/statusbar/NotificationListener.java
+index 9099c29c6323..2a7cb526b56f 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/NotificationListener.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/NotificationListener.java
+@@ -37,6 +37,7 @@ import com.android.systemui.statusbar.notification.collection.PipelineDumpable;
+ import com.android.systemui.statusbar.notification.collection.PipelineDumper;
+ import com.android.systemui.statusbar.phone.CentralSurfaces;
+ import com.android.systemui.statusbar.phone.NotificationListenerWithPlugins;
++import com.android.systemui.util.ScrimUtils;
+ import com.android.systemui.util.time.SystemClock;
+ 
+ import java.util.ArrayList;
+@@ -152,6 +153,7 @@ public class NotificationListener extends NotificationListenerWithPlugins implem
+                 for (NotificationHandler handler : mNotificationHandlers) {
+                     handler.onNotificationPosted(sbn, rankingMap);
+                 }
++                ScrimUtils.get().onNotificationPosted(sbn);
+             });
+         } else if (isKeyInRankingMap(key, rankingMap)) {
+             Log.wtf(TAG, "Plugin prevented post but left ranking " + key);
+@@ -176,6 +178,7 @@ public class NotificationListener extends NotificationListenerWithPlugins implem
+                 for (NotificationHandler handler : mNotificationHandlers) {
+                     handler.onNotificationRemoved(sbn, rankingMap, reason);
+                 }
++                ScrimUtils.get().onNotificationRemoved(sbn);
+             });
+         } else if (!isKeyInRankingMap(key, rankingMap)) {
+             Log.wtf(TAG, "Plugin prevented removal but removed ranking " + key
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewController.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewController.java
+index 01b80848c752..f04bbe068cc9 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewController.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/KeyguardStatusBarViewController.java
+@@ -35,6 +35,7 @@ import android.util.MathUtils;
+ import android.view.DisplayCutout;
+ import android.view.View;
+ import android.view.ViewGroup;
++import android.widget.TextView;
+ 
+ import androidx.annotation.NonNull;
+ import androidx.annotation.Nullable;
+@@ -52,6 +53,7 @@ import com.android.keyguard.KeyguardUpdateMonitor;
+ import com.android.keyguard.KeyguardUpdateMonitorCallback;
+ import com.android.keyguard.logging.KeyguardLogger;
+ import com.android.systemui.Flags;
++import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel;
+ import com.android.systemui.communal.domain.interactor.CommunalSceneInteractor;
+ import com.android.systemui.dagger.qualifiers.Background;
+ import com.android.systemui.dagger.qualifiers.Main;
+@@ -158,6 +160,10 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
+     private final OccludedToLockscreenTransitionViewModel mOccludedToLockscreenTransitionViewModel;
+     private final DreamViewModel mDreamViewModel;
+     private final KeyguardInteractor mKeyguardInteractor;
++    private final AxDynamicBarChipViewModel mAxDynamicBarChipViewModel;
++
++    @Nullable private TextView mCarrierLabel;
++    @Nullable private android.text.TextWatcher mCarrierTextWatcher;
+ 
+     @Nullable private ComposeView mBatteryComposeView;
+     private ViewGroup mSystemIconsContainer;
+@@ -377,7 +383,8 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
+             GoneToGlanceableHubTransitionViewModel goneToGlanceableHubTransitionViewModel,
+             OccludedToLockscreenTransitionViewModel occludedToLockscreenTransitionViewModel,
+             DreamViewModel dreamViewModel,
+-            KeyguardInteractor keyguardInteractor) {
++            KeyguardInteractor keyguardInteractor,
++            AxDynamicBarChipViewModel axDynamicBarChipViewModel) {
+         super(view);
+         mCoroutineDispatcher = dispatcher;
+         mContext = context;
+@@ -408,6 +415,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
+         mOccludedToLockscreenTransitionViewModel = occludedToLockscreenTransitionViewModel;
+         mDreamViewModel = dreamViewModel;
+         mKeyguardInteractor = keyguardInteractor;
++        mAxDynamicBarChipViewModel = axDynamicBarChipViewModel;
+ 
+         mFirstBypassAttempt = mKeyguardBypassController.getBypassEnabled();
+         if (!SceneContainerFlag.isEnabled()) {
+@@ -518,6 +526,19 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
+         if (Flags.bouncerUiRevamp()) {
+             collectFlow(mView, mKeyguardInteractor.primaryBouncerShowing, x -> updateViewState());
+         }
++        mCarrierLabel = mView.findViewById(R.id.keyguard_carrier_text);
++        if (mCarrierLabel != null) {
++            mCarrierTextWatcher = new android.text.TextWatcher() {
++                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
++                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
++                @Override public void afterTextChanged(android.text.Editable s) {
++                    mAxDynamicBarChipViewModel.updateKeyguardCarrierText(s.toString());
++                }
++            };
++            mCarrierLabel.addTextChangedListener(mCarrierTextWatcher);
++            mAxDynamicBarChipViewModel.updateKeyguardCarrierText(
++                    mCarrierLabel.getText().toString());
++        }
+         if (NewStatusBarIcons.isEnabled() && !SystemStatusIconsInCompose.isEnabled()) {
+             if (!SceneContainerFlag.isEnabled()) {
+                 mBatteryComposeView = createAndBindComposeBattery();
+@@ -555,6 +576,11 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
+         if (mTintedIconManager != null) {
+             mStatusBarIconController.removeIconGroup(mTintedIconManager);
+         }
++        if (mCarrierLabel != null && mCarrierTextWatcher != null) {
++            mCarrierLabel.removeTextChangedListener(mCarrierTextWatcher);
++            mCarrierLabel = null;
++            mCarrierTextWatcher = null;
++        }
+         if (SceneContainerFlag.isEnabled()) {
+             mKeyguardStateController.removeCallback(mKeyguardStateControllerCallback);
+             if (mBatteryComposeView != null) {
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
+index 013eae5ed025..94b4c2f11385 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/pipeline/shared/ui/composable/StatusBarRoot.kt
+@@ -31,6 +31,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.widthIn
+@@ -39,6 +40,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.MutableIntState
++import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+@@ -69,6 +71,8 @@ import com.android.compose.modifiers.thenIf
+ import com.android.compose.theme.PlatformTheme
+ import com.android.compose.theme.colorAttr
+ import com.android.systemui.Flags
++import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
++import com.android.systemui.axdynamicbar.ui.compose.AxDynamicBarChip
+ import com.android.systemui.clock.ClockModernization
+ import com.android.systemui.clock.ui.composable.Clock
+ import com.android.systemui.clock.ui.viewmodel.AmPmStyle
+@@ -118,7 +122,8 @@ import com.android.systemui.statusbar.pipeline.shared.ui.binder.HomeStatusBarVie
+ import com.android.systemui.statusbar.pipeline.shared.ui.view.SystemStatusIconsLayoutHelper
+ import com.android.systemui.statusbar.pipeline.shared.ui.viewmodel.HomeStatusBarViewModel
+ import com.android.systemui.statusbar.pipeline.shared.ui.viewmodel.HomeStatusBarViewModel.HomeStatusBarViewModelFactory
+-import com.android.systemui.statusbar.policy.Clock
++import com.android.systemui.statusbar.data.repository.StatusBarModePerDisplayRepository
++import com.android.systemui.statusbar.policy.Clock as PolicyClock
+ import com.android.systemui.statusbar.systemstatusicons.SystemStatusIconsInCompose
+ import com.android.systemui.statusbar.systemstatusicons.domain.interactor.SystemStatusIconBlocklistInteractor
+ import com.android.systemui.statusbar.systemstatusicons.ui.compose.SystemStatusIcons
+@@ -129,6 +134,7 @@ import javax.inject.Inject
+ import kotlin.math.abs
+ import kotlinx.coroutines.DisposableHandle
+ import kotlinx.coroutines.awaitCancellation
++import kotlinx.coroutines.flow.StateFlow
+ 
+ /** Factory to simplify the dependency management for [StatusBarRoot] */
+ @PerDisplaySingleton
+@@ -149,6 +155,8 @@ constructor(
+     @DisplayAware private val headlineViewModelFactory: HeadlineViewModel.Factory,
+     private val statusBarRegionSamplingViewModelFactory: StatusBarRegionSamplingViewModel.Factory,
+     private val shadeWindowRootView: WindowRootView,
++    @DisplayAware private val statusBarModeRepository: StatusBarModePerDisplayRepository,
++    private val axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
+ ) {
+     fun create(root: ViewGroup, andThen: (ViewGroup) -> Unit): ComposeView {
+         val composeView = ComposeView(root.context)
+@@ -172,6 +180,8 @@ constructor(
+                         eventAnimationInteractor = eventAnimationInteractor,
+                         statusBarRegionSamplingViewModelFactory =
+                             statusBarRegionSamplingViewModelFactory,
++                        axDynamicBarChipViewModel = axDynamicBarChipViewModel,
++                        isFullscreen = statusBarModeRepository.isInFullscreenMode,
+                         onViewCreated = andThen,
+                         modifier = Modifier.sysUiResTagContainer(),
+                     )
+@@ -210,6 +220,8 @@ fun StatusBarRoot(
+     darkIconDispatcher: DarkIconDispatcher,
+     eventAnimationInteractor: SystemStatusEventAnimationInteractor,
+     statusBarRegionSamplingViewModelFactory: StatusBarRegionSamplingViewModel.Factory,
++    axDynamicBarChipViewModel: AxDynamicBarChipViewModel,
++    isFullscreen: StateFlow<Boolean>,
+     onViewCreated: (ViewGroup) -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+@@ -386,6 +398,27 @@ fun StatusBarRoot(
+             parent.initOnBackPressedDispatcherOwner(lifecycle, force = true)
+             headlineComposer.Content(headlineViewModel, modifier = Modifier.align(Alignment.Center))
+         }
++
++        val axEnabled by axDynamicBarChipViewModel.interactor.settings.isEnabled.collectAsState()
++        val axPlacement by axDynamicBarChipViewModel.cutoutType.collectAsState()
++        val fullscreen by isFullscreen.collectAsState()
++        if (axEnabled) {
++            Box(
++                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
++                contentAlignment =
++                    when (axPlacement) {
++                        "left" -> Alignment.TopStart
++                        "right" -> Alignment.TopEnd
++                        else -> Alignment.TopCenter
++                    },
++            ) {
++                AxDynamicBarChip(
++                    viewModel = axDynamicBarChipViewModel,
++                    isFullscreen = fullscreen,
++                    modifier = Modifier.wrapContentSize(),
++                )
++            }
++        }
+     }
+ }
+ 
+@@ -402,7 +435,7 @@ private fun addStartSideComposable(
+         phoneStatusBarView.requireViewById<LinearLayout>(R.id.status_bar_start_side_except_heads_up)
+     val startSideContainerView =
+         phoneStatusBarView.requireViewById<View>(R.id.status_bar_start_side_container)
+-    val clockView = phoneStatusBarView.requireViewById<Clock>(R.id.clock)
++    val clockView = phoneStatusBarView.requireViewById<PolicyClock>(R.id.clock)
+ 
+     val composeView =
+         ComposeView(context).apply {
