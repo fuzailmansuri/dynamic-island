@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -45,7 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
@@ -72,12 +75,46 @@ private val ControlIconSize = 22.dp
 internal fun MediaCard(event: IslandEvent.Media, interactor: IslandActions) {
     val colors = rememberMediaColors(event)
     val accent = colors.accent
+    val hasBackdrop = event.albumArt != null
 
+    // Apple-style immersive backdrop: album art blurred behind the whole card,
+    // with a dark scrim so text stays legible (HIG: expanded presentation).
     Surface(
         modifier = Modifier.fillMaxWidth().border(1.dp, CardBorderBrush, ShapeCard),
         shape = ShapeCard,
-        color = CardBg,
+        color = Color.Transparent,
     ) {
+        Box(modifier = Modifier.clip(ShapeCard)) {
+            if (hasBackdrop) {
+                Image(
+                    bitmap = event.albumArt!!.toScaledBitmap(120.dp),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize().blur(48.dp),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.65f,
+                )
+                Box(
+                    modifier = Modifier.matchParentSize().background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.35f),
+                                Color.Black.copy(alpha = 0.72f),
+                            )
+                        )
+                    )
+                )
+            } else {
+                Box(
+                    modifier = Modifier.matchParentSize().background(
+                        Brush.verticalGradient(
+                            listOf(
+                                accent.copy(alpha = AlphaSubtle),
+                                CardBg,
+                            )
+                        )
+                    )
+                )
+            }
         Column(modifier = Modifier.fillMaxWidth()) {
             MediaLaunchExpandable(interactor, ShapeCard) {
                 Row(
@@ -110,8 +147,9 @@ internal fun MediaCard(event: IslandEvent.Media, interactor: IslandActions) {
                             event.track.ifEmpty { stringResource(R.string.ax_dynamic_bar_now_playing) },
                             color = OnCardText,
                             style = MaterialTheme.typography.titleMedium,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
                         )
                         if (event.artist.isNotEmpty()) {
                             Row(
@@ -143,6 +181,7 @@ internal fun MediaCard(event: IslandEvent.Media, interactor: IslandActions) {
                         )
                     }
                 }
+            }
             }
 
             Column(
@@ -421,7 +460,12 @@ private fun MediaSeekBar(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(formatElapsedTime(displayMs), color = SubtleGray, style = MaterialTheme.typography.labelSmall)
-            Text(formatElapsedTime(event.duration), color = SubtleGray, style = MaterialTheme.typography.labelSmall)
+            // HIG-style remaining time (-m:ss) so users can glance at what's left
+            Text(
+                "-" + formatElapsedTime((event.duration - displayMs).coerceAtLeast(0L)),
+                color = SubtleGray,
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
         Box(
             modifier = Modifier

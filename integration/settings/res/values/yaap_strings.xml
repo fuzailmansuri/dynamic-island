@@ -943,6 +943,12 @@
     <string name="dynamic_island_offset_y_summary">Adjust from -50 dp to +50 dp</string>
     <string name="dynamic_island_hide_text_behind_cutout_title">Hide text behind camera cutout</string>
     <string name="dynamic_island_hide_text_behind_cutout_summary">Pad out active content so text and icons never clip under the camera lens</string>
+    <string name="dynamic_island_live_progress_title">Live progress line</string>
+    <string name="dynamic_island_live_progress_summary">Show a thin progress line under countdowns and timers in the compact pill</string>
+    <string name="dynamic_island_icon_only_title">Icon-only pill</string>
+    <string name="dynamic_island_icon_only_summary">Hide all text in the compact pill and show icons and visualizers only</string>
+    <string name="dynamic_island_media_glow_title">Beat glow while music plays</string>
+    <string name="dynamic_island_media_glow_summary">Slim album-tinted waveform along the bottom edge of the pill, pulsing with the beat</string>
     <string name="dynamic_island_reset_title">Reset Dynamic Island</string>
     <string name="dynamic_island_reset_summary">Restore the default appearance, behavior, and event choices</string>
     <string name="dynamic_island_reset_dialog_title">Reset Dynamic Island settings?</string>

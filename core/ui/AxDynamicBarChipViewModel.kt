@@ -163,6 +163,12 @@ constructor(
     val cutoutOffsetY: StateFlow<Int> = interactor.settings.cutoutOffsetY
     val hideTextBehindCutout: StateFlow<Boolean> = interactor.settings.hideTextBehindCutout
 
+    val liveProgress: StateFlow<Boolean> = interactor.settings.liveProgress
+
+    val iconOnly: StateFlow<Boolean> = interactor.settings.iconOnly
+
+    val mediaGlow: StateFlow<Boolean> = interactor.settings.mediaGlow
+
     val tapAction: StateFlow<Int> = interactor.settings.tapAction
     val longPressAction: StateFlow<Int> = interactor.settings.longPressAction
     val swipeDismiss: StateFlow<Boolean> = interactor.settings.swipeDismiss

@@ -36,6 +36,9 @@ class AxDynamicBarSettings @Inject constructor(
         const val KEY_EVENT_RECORDING = "dynamic_island_event_recording"
         const val KEY_EVENT_NOTIFICATION = "dynamic_island_event_notification"
         const val KEY_HIDE_TEXT_BEHIND_CUTOUT = "dynamic_island_hide_text_behind_cutout"
+        const val KEY_LIVE_PROGRESS = "dynamic_island_live_progress"
+        const val KEY_ICON_ONLY = "dynamic_island_icon_only"
+        const val KEY_MEDIA_GLOW = "dynamic_island_media_glow"
 
         const val KEY_TAP_ACTION = "dynamic_island_tap_action"
         const val KEY_LONG_PRESS_ACTION = "dynamic_island_long_press_action"
@@ -113,6 +116,15 @@ class AxDynamicBarSettings @Inject constructor(
     private val _hideTextBehindCutout = MutableStateFlow(true)
     val hideTextBehindCutout: StateFlow<Boolean> = _hideTextBehindCutout.asStateFlow()
 
+    private val _liveProgress = MutableStateFlow(true)
+    val liveProgress: StateFlow<Boolean> = _liveProgress.asStateFlow()
+
+    private val _iconOnly = MutableStateFlow(false)
+    val iconOnly: StateFlow<Boolean> = _iconOnly.asStateFlow()
+
+    private val _mediaGlow = MutableStateFlow(true)
+    val mediaGlow: StateFlow<Boolean> = _mediaGlow.asStateFlow()
+
     private val _tapAction = MutableStateFlow(0)
     val tapAction: StateFlow<Int> = _tapAction.asStateFlow()
 
@@ -174,6 +186,9 @@ class AxDynamicBarSettings @Inject constructor(
             KEY_EVENT_RECORDING,
             KEY_EVENT_NOTIFICATION,
             KEY_HIDE_TEXT_BEHIND_CUTOUT,
+            KEY_LIVE_PROGRESS,
+            KEY_ICON_ONLY,
+            KEY_MEDIA_GLOW,
             KEY_TAP_ACTION,
             KEY_LONG_PRESS_ACTION,
             KEY_SWIPE_DISMISS,
@@ -248,6 +263,12 @@ class AxDynamicBarSettings @Inject constructor(
         _eventNotification.value = notification
         _hideTextBehindCutout.value =
             systemSettings.getIntForUser(KEY_HIDE_TEXT_BEHIND_CUTOUT, 1, UserHandle.USER_CURRENT) == 1
+        _liveProgress.value =
+            systemSettings.getIntForUser(KEY_LIVE_PROGRESS, 1, UserHandle.USER_CURRENT) == 1
+        _iconOnly.value =
+            systemSettings.getIntForUser(KEY_ICON_ONLY, 0, UserHandle.USER_CURRENT) == 1
+        _mediaGlow.value =
+            systemSettings.getIntForUser(KEY_MEDIA_GLOW, 1, UserHandle.USER_CURRENT) == 1
 
         _tapAction.value =
             systemSettings.getIntForUser(KEY_TAP_ACTION, 0, UserHandle.USER_CURRENT).coerceIn(0, 2)

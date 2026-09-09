@@ -1,20 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="dynamic_island_title">Dynamic Island</string>
+    <string name="dynamic_island_summary">Fluid island for media, calls, timers and live activities</string>
     <string name="dynamic_island_enabled_title">Enable Dynamic Island</string>
     <string name="dynamic_island_enabled_summary">Show fluid interactive island for media, notifications, timers, calls, and hardware telemetry</string>
+
+    <!-- Active Events -->
+    <string name="dynamic_island_events_category_title">Active Events</string>
+    <string name="dynamic_island_event_media_title">Media playback &amp; waveform</string>
+    <string name="dynamic_island_event_calls_title">Ongoing and incoming calls</string>
+    <string name="dynamic_island_event_ongoing_title">Ongoing activity chips</string>
+    <string name="dynamic_island_event_battery_title">Charging and battery telemetry</string>
+    <string name="dynamic_island_event_timers_title">Timers and stopwatches</string>
+    <string name="dynamic_island_event_torch_title">Flashlight indicator</string>
+    <string name="dynamic_island_event_notification_title">Heads-up notifications</string>
+    <string name="dynamic_island_event_biometrics_title">Face and fingerprint unlock</string>
+    <string name="dynamic_island_event_recording_title">Screen and audio recording</string>
+
+    <!-- Gestures -->
+    <string name="dynamic_island_gestures_category_title">Gestures &amp; Interactions</string>
+    <string name="dynamic_island_tap_action_title">Tap action</string>
+    <string name="dynamic_island_long_press_action_title">Long-press action</string>
+    <string name="dynamic_island_swipe_dismiss_title">Swipe to dismiss</string>
+
+    <!-- Appearance -->
+    <string name="dynamic_island_appearance_category_title">Behavior &amp; Appearance</string>
+    <string name="dynamic_island_landscape_mode_title">Show in landscape</string>
+    <string name="dynamic_island_suppress_fullscreen_title">Hide in fullscreen apps</string>
+    <string name="dynamic_island_animation_style_title">Animation style</string>
+    <string name="dynamic_island_collapse_timeout_title">Auto-collapse timeout</string>
+    <string name="dynamic_island_scale_title">Island scale</string>
+
+    <!-- Keyguard -->
+    <string name="dynamic_island_keyguard_category_title">Lock Screen</string>
+    <string name="dynamic_island_keyguard_enabled_title">Show island chip on lock screen</string>
+    <string name="dynamic_island_keyguard_battery_chip_title">Lock screen battery chip</string>
+
+    <!-- Cutout -->
     <string name="dynamic_island_cutout_category_title">Cutout Adaptability</string>
     <string name="dynamic_island_cutout_type_title">Camera Cutout Position</string>
     <string name="dynamic_island_width_title">Island Width Offset</string>
     <string name="dynamic_island_height_title">Island Height Offset</string>
     <string name="dynamic_island_offset_x_title">Horizontal Position Offset</string>
     <string name="dynamic_island_offset_y_title">Vertical Position Offset</string>
-    <string name="dynamic_island_events_category_title">Active Events</string>
-    <string name="dynamic_island_event_media_title">Media playback &amp; waveform</string>
-    <string name="dynamic_island_event_call_title">Ongoing and incoming calls</string>
-    <string name="dynamic_island_event_battery_title">Charging and battery telemetry</string>
-    <string name="dynamic_island_event_timer_title">Timers and stopwatches</string>
-    <string name="dynamic_island_event_torch_title">Flashlight indicator</string>
-    <string name="dynamic_island_event_notification_title">Heads-up notifications</string>
-    <string name="dynamic_island_event_biometrics_title">Face and fingerprint unlock</string>
+    <string name="dynamic_island_hide_text_behind_cutout_title">Hide text behind camera cutout</string>
+    <string name="dynamic_island_hide_text_behind_cutout_summary">Pad out active content so text and icons never clip under the camera lens</string>
+    <string name="dynamic_island_live_progress_title">Live progress line</string>
+    <string name="dynamic_island_live_progress_summary">Show a thin progress line under countdowns and timers in the compact pill</string>
+    <string name="dynamic_island_icon_only_title">Icon-only pill</string>
+    <string name="dynamic_island_icon_only_summary">Hide all text in the compact pill and show icons and visualizers only</string>
+    <string name="dynamic_island_media_glow_title">Beat glow while music plays</string>
+    <string name="dynamic_island_media_glow_summary">Slim album-tinted waveform along the bottom edge of the pill, pulsing with the beat</string>
+
+    <!-- Reset -->
+    <string name="dynamic_island_reset_title">Reset to defaults</string>
+    <string name="dynamic_island_reset_summary">Restore all Dynamic Island settings to their default values</string>
+    <string name="dynamic_island_reset_dialog_title">Reset settings?</string>
+    <string name="dynamic_island_reset_dialog_message">All Dynamic Island settings will be restored to their defaults.</string>
+    <string name="dynamic_island_reset_confirm">Reset</string>
 </resources>

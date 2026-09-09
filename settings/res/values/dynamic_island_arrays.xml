@@ -10,4 +10,56 @@
         <item>left</item>
         <item>right</item>
     </string-array>
+    <string-array name="dynamic_island_tap_action_entries">
+        <item>Expand the island</item>
+        <item>Open the related app</item>
+        <item>Do nothing</item>
+    </string-array>
+    <string-array name="dynamic_island_tap_action_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+    <string-array name="dynamic_island_long_press_action_entries">
+        <item>Expand the island</item>
+        <item>Open the related app</item>
+        <item>Do nothing</item>
+    </string-array>
+    <string-array name="dynamic_island_long_press_action_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+    <string-array name="dynamic_island_animation_style_entries">
+        <item>Spring (organic)</item>
+        <item>Swift (snappy)</item>
+        <item>Soft (gentle)</item>
+    </string-array>
+    <string-array name="dynamic_island_animation_style_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+    <string-array name="dynamic_island_collapse_timeout_entries">
+        <item>Never</item>
+        <item>3 seconds</item>
+        <item>5 seconds</item>
+        <item>10 seconds</item>
+    </string-array>
+    <string-array name="dynamic_island_collapse_timeout_values">
+        <item>0</item>
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+    </string-array>
+    <string-array name="dynamic_island_keyguard_battery_chip_entries">
+        <item>Hidden</item>
+        <item>Percentage</item>
+        <item>Percentage and icon</item>
+    </string-array>
+    <string-array name="dynamic_island_keyguard_battery_chip_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
 </resources>

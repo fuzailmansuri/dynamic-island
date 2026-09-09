@@ -2,6 +2,7 @@ package com.android.systemui.axdynamicbar.ui.compose
 
 import android.content.res.Configuration
 import android.graphics.Rect
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -31,10 +32,12 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -57,6 +60,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
@@ -66,7 +70,11 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -76,6 +84,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.dimensionResource
@@ -124,6 +133,9 @@ import com.android.systemui.axdynamicbar.ui.AxDynamicBarChipViewModel
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.chips.StatusBarChipsReturnAnimations
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.PI
+import kotlin.math.sin
 
 private val ChipShape = RoundedCornerShape(percent = 50)
 private val ChipHeight = 24.dp
@@ -376,6 +388,9 @@ private fun AxDynamicBarChipContent(
             val cutoutOffsetXSetting by viewModel.cutoutOffsetX.collectAsStateWithLifecycle()
             val cutoutOffsetYSetting by viewModel.cutoutOffsetY.collectAsStateWithLifecycle()
             val hideTextBehindCutout by viewModel.hideTextBehindCutout.collectAsStateWithLifecycle()
+            val liveProgress by viewModel.liveProgress.collectAsStateWithLifecycle()
+            val iconOnly by viewModel.iconOnly.collectAsStateWithLifecycle()
+            val mediaGlow by viewModel.mediaGlow.collectAsStateWithLifecycle()
 
             val privacyGlowState by viewModel.privacyGlowState.collectAsStateWithLifecycle()
             val glowTransition = rememberInfiniteTransition(label = "privacy_glow_pulse")
@@ -416,6 +431,15 @@ private fun AxDynamicBarChipContent(
                 Modifier
             }
 
+            // Real camera cutout width from the window insets, so the dead-zone spacer matches
+            // the physical punch-hole on every device instead of a hardcoded estimate.
+            val density = LocalDensity.current
+            val cutoutWidthDp = remember(anchorView, density) {
+                val rect = anchorView?.rootWindowInsets?.displayCutout?.boundingRectTop
+                val widthPx = rect?.width() ?: 0
+                if (widthPx > 0) with(density) { widthPx.toDp().value } else 34f
+            }
+
             val chipHeightDp = ((ChipHeight.value + cutoutHeightSetting) * userScale).coerceIn(16f, 48f).dp
             val chipMinWidthDp =
                 if (cutoutType == "center") {
@@ -433,6 +457,41 @@ private fun AxDynamicBarChipContent(
                 }
             val safeOffsetX = cutoutOffsetXSetting.coerceIn(-50, 50)
             val safeOffsetY = cutoutOffsetYSetting.coerceIn(-50, 50)
+
+            // Signature "beat glow": a slim album-tinted waveform riding the bottom edge of
+            // the pill while music plays. Procedural 125 BPM decay envelope + two sine
+            // harmonics — premium motion without microphone access (privacy-safe).
+            // Honors the system "remove animations" accessibility setting (HIG reduced motion).
+            val context = LocalContext.current
+            val reducedMotion = remember(context) {
+                Settings.Global.getFloat(
+                    context.contentResolver,
+                    Settings.Global.ANIMATOR_DURATION_SCALE,
+                    1f,
+                ) == 0f
+            }
+            val mediaBeatFrame = remember { mutableLongStateOf(0L) }
+            val isMediaEvent = event is IslandEvent.Media && mediaGlow && !reducedMotion
+            val isMediaPlaying = isMediaEvent && (event as IslandEvent.Media).isPlaying
+            if (isMediaPlaying) {
+                LaunchedEffect(event.id) {
+                    while (true) {
+                        withFrameNanos { mediaBeatFrame.value = it }
+                    }
+                }
+            }
+            val beatGlowModifier = if (isMediaEvent) {
+                Modifier.drawWithContent {
+                    drawContent()
+                    drawMediaBeatGlow(
+                        mediaColor = (event as IslandEvent.Media).mediaColor,
+                        frameNanos = mediaBeatFrame.value,
+                        isPlaying = isMediaPlaying,
+                    )
+                }
+            } else {
+                Modifier
+            }
 
             Box(
                 modifier = Modifier.fillMaxHeight(),
@@ -474,6 +533,7 @@ private fun AxDynamicBarChipContent(
                                     .then(privacyGlowModifier)
                                     .clip(ChipShape)
                                     .background(CardBg)
+                                    .then(beatGlowModifier)
                                     .padding(
                                         start = SpaceSm,
                                         end = if (cutoutType == "center") SpaceSm else SpaceMd,
@@ -487,7 +547,9 @@ private fun AxDynamicBarChipContent(
                                     contentColor = contentColor,
                                     accent = accent,
                                     cutoutWidthSetting = cutoutWidthSetting,
+                                    cutoutWidthDp = cutoutWidthDp,
                                     hideTextBehindCutout = hideTextBehindCutout,
+                                    liveProgress = liveProgress,
                                     chipTextMaxWidth = chipTextMaxWidth,
                                     carrierName = carrierName,
                                 )
@@ -514,6 +576,7 @@ private fun AxDynamicBarChipContent(
                                     chipState = chipState,
                                     contentColor = contentColor,
                                     accent = accent,
+                                    iconOnly = iconOnly,
                                     chipTextMaxWidth = chipTextMaxWidth,
                                     modifier = Modifier.weight(1f, fill = false),
                                 )
@@ -655,6 +718,7 @@ private fun ChipEventSceneContent(
     chipState: AxDynamicBarChipState,
     contentColor: Color,
     accent: Color,
+    iconOnly: Boolean,
     chipTextMaxWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -668,6 +732,7 @@ private fun ChipEventSceneContent(
                     ChipAlertEventContent(
                         it,
                         contentColor,
+                        iconOnly,
                         chipTextMaxWidth,
                         Modifier.element(ChipEventElements.AlertContent),
                     )
@@ -680,6 +745,7 @@ private fun ChipEventSceneContent(
                         chipState,
                         contentColor,
                         accent,
+                        iconOnly,
                         chipTextMaxWidth,
                         Modifier.element(ChipEventElements.MediaContent),
                     )
@@ -690,6 +756,7 @@ private fun ChipEventSceneContent(
                     ChipSportsEventContent(
                         it,
                         contentColor,
+                        iconOnly,
                         Modifier.element(ChipEventElements.SportsContent),
                     )
                 }
@@ -716,6 +783,7 @@ private fun ChipEventSceneContent(
 private fun ChipAlertEventContent(
     event: IslandEvent.Notification,
     contentColor: Color,
+    iconOnly: Boolean,
     chipTextMaxWidth: Dp,
     modifier: Modifier,
 ) {
@@ -729,7 +797,7 @@ private fun ChipAlertEventContent(
             )
             Spacer(Modifier.width(SpaceXs))
         }
-        Text(
+        if (!iconOnly) Text(
             text = event.appName ?: "",
             style = PillPrimary,
             color = contentColor,
@@ -745,12 +813,13 @@ private fun ChipAlertEventContent(
 private fun ChipSportsEventContent(
     event: IslandEvent.Sports,
     contentColor: Color,
+    iconOnly: Boolean,
     modifier: Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         StatusBarSportsTeamBadge(event.team1Name, event.team1Icon, contentColor)
         Spacer(Modifier.width(SpaceXs))
-        Text(
+        if (!iconOnly) Text(
             if (event.score1.isNotEmpty()) "${event.score1} - ${event.score2}"
             else stringResource(R.string.ax_dynamic_bar_sports_vs),
             style = PillPrimary,
@@ -769,6 +838,7 @@ private fun ChipDefaultEventContent(
     chipState: AxDynamicBarChipState,
     contentColor: Color,
     accent: Color,
+    iconOnly: Boolean,
     chipTextMaxWidth: Dp,
     modifier: Modifier,
 ) {
@@ -781,7 +851,7 @@ private fun ChipDefaultEventContent(
                 color = compactMediaWaveColor(event),
                 modifier = Modifier.size(width = 10.dp, height = 8.dp),
             )
-        } else {
+        } else if (!iconOnly) {
             PillEventText(
                 event,
                 Modifier.weight(1f, fill = false).widthIn(max = chipTextMaxWidth),
@@ -794,6 +864,72 @@ private fun ChipDefaultEventContent(
     }
 }
 
+/**
+ * Signature "beat glow" renderer. Draws a slim waveform hugging the pill's bottom
+ * edge: ~46% of pill width, album-art-tinted gradient, exponential-decay beat
+ * envelope at ~125 BPM with two layered sine harmonics. Fully procedural — no mic.
+ */
+private val BeatBpm = 125f
+private val BeatPeriodMs = 60_000f / BeatBpm
+
+private fun DrawScope.drawMediaBeatGlow(mediaColor: Int, frameNanos: Long, isPlaying: Boolean) {
+    if (mediaColor == 0) return
+    val w = size.width
+    val h = size.height
+    if (w <= 0f || h <= 0f) return
+
+    val waveWidth = w * 0.46f
+    val left = (w - waveWidth) / 2f
+    val baseY = h - 1.8f
+    val maxAmp = 2.5.dp.toPx()
+
+    val tMs = frameNanos / 1_000_000L
+    val tSec = tMs / 1000f
+    val beatPhase = (tMs % BeatPeriodMs.toLong()) / BeatPeriodMs
+    // Exponential decay from each beat onset — reads as a pulse reacting to the kick.
+    val beatEnvelope = exp(-beatPhase * 4.2f)
+    // Paused: the glow settles into a calm, static resting shimmer (frames stop
+    // updating, so this value is what the wave freezes at — smooth pause, no burn).
+    val breathe = if (isPlaying) 0.72f + 0.28f * sin(tSec * 1.6f) else 0.55f
+    val energy = if (isPlaying) (0.35f + 0.65f * beatEnvelope) * breathe else 0.18f
+
+    val base = Color(mediaColor)
+    val hueShifted = base.copy(red = (base.red * 0.82f + 0.14f).coerceIn(0f, 1f), green = base.green, blue = (base.blue * 0.9f + 0.06f).coerceIn(0f, 1f))
+    val gradient = Brush.horizontalGradient(
+        colors = listOf(
+            base.copy(alpha = 0f),
+            base.copy(alpha = 0.85f),
+            hueShifted.copy(alpha = 0.9f),
+            base.copy(alpha = 0.85f),
+            base.copy(alpha = 0f),
+        ),
+        startX = left,
+        endX = left + waveWidth,
+    )
+
+    fun waveY(x: Float): Float {
+        val nx = (x - left) / waveWidth
+        val edgeTaper = sin(nx * PI.toFloat() ).coerceIn(0f, 1f)
+        val h1 = sin(nx * 6f * PI.toFloat() + tSec * 5.2f) * 0.55f
+        val h2 = sin(nx * 11f * PI.toFloat() - tSec * 3.7f) * 0.30f
+        val h3 = sin(nx * 21f * PI.toFloat() + tSec * 8.9f) * 0.15f
+        return baseY - (h1 + h2 + h3) * maxAmp * energy * edgeTaper
+    }
+
+    // Soft glow underlay.
+    val glowPath = Path()
+    val step = 3f
+    var x = left
+    glowPath.moveTo(x, waveY(x))
+    while (x < left + waveWidth) {
+        x += step
+        glowPath.lineTo(x, waveY(x))
+    }
+    drawPath(glowPath, gradient, style = Stroke(width = 5.5f, cap = StrokeCap.Round))
+    // Crisp core line.
+    drawPath(glowPath, gradient, style = Stroke(width = 1.6f, cap = StrokeCap.Round))
+}
+
 @Composable
 private fun CenterCutoutCompactPillContent(
     event: IslandEvent,
@@ -801,13 +937,15 @@ private fun CenterCutoutCompactPillContent(
     contentColor: Color,
     accent: Color,
     cutoutWidthSetting: Int,
+    cutoutWidthDp: Float,
     hideTextBehindCutout: Boolean,
+    liveProgress: Boolean,
     chipTextMaxWidth: Dp,
     carrierName: String?,
 ) {
     // 1. Leading Slot (left of camera): Event icon, album art, call avatar
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (carrierName != null) {
+        if (carrierName != null && !iconOnly) {
             Text(
                 text = carrierName,
                 style = MaterialTheme.typography.labelSmall,
@@ -826,21 +964,58 @@ private fun CenterCutoutCompactPillContent(
         CenterCutoutLeadingSlot(event, contentColor)
     }
 
-    // 2. Camera Cutout Dead-Zone Spacer: zero text/graphics drawn under physical lens when enabled
+    // 2. Camera Cutout Dead-Zone Spacer: zero text/graphics drawn under physical lens when enabled.
+    // Uses the real DisplayCutout bounding rect width (falls back to 34dp when unavailable)
+    // plus the user's fine-tune offset.
     if (hideTextBehindCutout) {
-        Spacer(modifier = Modifier.width((34f + cutoutWidthSetting).coerceAtLeast(16f).dp))
+        Spacer(modifier = Modifier.width((cutoutWidthDp + cutoutWidthSetting).coerceAtLeast(16f).dp))
     } else {
         Spacer(modifier = Modifier.width(SpaceXs))
     }
 
     // 3. Trailing Slot (right of camera): Animated equalizer bars, call timer, countdown, badge text
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        CenterCutoutTrailingSlot(
-            event = event,
-            chipState = chipState,
-            contentColor = contentColor,
-            accent = accent,
-            chipTextMaxWidth = chipTextMaxWidth,
+    Column(horizontalAlignment = Alignment.End) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CenterCutoutTrailingSlot(
+                event = event,
+                chipState = chipState,
+                contentColor = contentColor,
+                accent = accent,
+                liveProgress = liveProgress,
+                iconOnly = iconOnly,
+                chipTextMaxWidth = chipTextMaxWidth,
+            )
+        }
+    }
+}
+
+/**
+ * HIG live-data: a thin hairline progress under the countdown text so users can
+ * read remaining time at a glance without parsing digits (Live Activities guidance).
+ */
+@Composable
+private fun CompactLiveProgress(
+    progress: Float?,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val animated by animateFloatAsState(
+        targetValue = (progress ?: 0f).coerceIn(0f, 1f),
+        animationSpec = spring(dampingRatio = 1f, stiffness = 80f),
+        label = "compact_live_progress",
+    )
+    Box(
+        modifier = modifier
+            .height(2.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(color.copy(alpha = 0.22f))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(animated)
+                .height(2.dp)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(color.copy(alpha = 0.85f))
         )
     }
 }
@@ -891,6 +1066,8 @@ private fun CenterCutoutTrailingSlot(
     chipState: AxDynamicBarChipState,
     contentColor: Color,
     accent: Color,
+    liveProgress: Boolean,
+    iconOnly: Boolean,
     chipTextMaxWidth: Dp,
 ) {
     when (event) {
@@ -913,7 +1090,7 @@ private fun CenterCutoutTrailingSlot(
                             formatter = c.format.toFormatter(),
                             timeSource = c.timeSource,
                         )
-                    timerState.currentTimeText?.let { text ->
+                    if (!iconOnly) timerState.currentTimeText?.let { text ->
                         Text(
                             text = text,
                             style = PillPrimary,
@@ -924,6 +1101,7 @@ private fun CenterCutoutTrailingSlot(
                     }
                 }
                 is OngoingActivityChipModel.Content.Countdown -> {
+                    if (!iconOnly) {
                     Text(
                         text = formatCountdownLong(c.secondsUntilStarted * 1000L),
                         style = PillPrimary,
@@ -931,6 +1109,17 @@ private fun CenterCutoutTrailingSlot(
                         maxLines = 1,
                         softWrap = false,
                     )
+                    if (liveProgress) {
+                        Spacer(Modifier.width(SpaceXs))
+                        // No absolute duration on this content type: show a bar that
+                        // drains from full so relative urgency is still glanceable.
+                        CompactLiveProgress(
+                            progress = 1f - ((c.secondsUntilStarted % 60f) / 60f),
+                            color = contentColor,
+                            modifier = Modifier.size(width = 22.dp, height = 2.dp),
+                        )
+                    }
+                    }
                 }
                 is OngoingActivityChipModel.Content.ShortTimeDelta -> {
                     val deltaState =
@@ -939,7 +1128,7 @@ private fun CenterCutoutTrailingSlot(
                             timeSource = c.timeSource,
                         )
                     val text = deltaState.timeRemainingData?.let { formatTimeRemainingData(it) } ?: ""
-                    if (text.isNotBlank()) {
+                    if (text.isNotBlank() && !iconOnly) {
                         Text(
                             text = text,
                             style = PillPrimary,
@@ -950,7 +1139,7 @@ private fun CenterCutoutTrailingSlot(
                     }
                 }
                 is OngoingActivityChipModel.Content.Text -> {
-                    Text(
+                    if (!iconOnly) Text(
                         text = c.text,
                         style = PillPrimary,
                         color = contentColor,
@@ -962,7 +1151,7 @@ private fun CenterCutoutTrailingSlot(
                 }
                 is OngoingActivityChipModel.Content.TextVariants -> {
                     val text = c.textVariants.firstOrNull() ?: ""
-                    if (text.isNotBlank()) {
+                    if (text.isNotBlank() && !iconOnly) {
                         Text(
                             text = text,
                             style = PillPrimary,
@@ -981,7 +1170,7 @@ private fun CenterCutoutTrailingSlot(
             }
         }
         is IslandEvent.Timer -> {
-            if (event.endTimeMs > 0L) {
+            if (event.endTimeMs > 0L && !iconOnly) {
                 if (event.isPaused) {
                     Text(
                         text = stringResource(R.string.ax_dynamic_bar_paused),
@@ -1008,8 +1197,16 @@ private fun CenterCutoutTrailingSlot(
                         maxLines = 1,
                         softWrap = false,
                     )
+                    if (liveProgress && event.originalDurationMs > 0L) {
+                        Spacer(Modifier.width(SpaceXs))
+                        CompactLiveProgress(
+                            progress = remainingMs.toFloat() / event.originalDurationMs,
+                            color = contentColor,
+                            modifier = Modifier.size(width = 22.dp, height = 2.dp),
+                        )
+                    }
                 }
-            } else {
+            } else if (!iconOnly) {
                 Text(
                     text = event.label.ifEmpty { stringResource(R.string.ax_dynamic_bar_timer) },
                     style = PillPrimary,
@@ -1023,7 +1220,7 @@ private fun CenterCutoutTrailingSlot(
             }
         }
         is IslandEvent.Stopwatch -> {
-            if (!event.isRunning) {
+            if (!iconOnly && !event.isRunning) {
                 Text(
                     text = stringResource(R.string.ax_dynamic_bar_paused),
                     style = PillPrimary,
@@ -1031,7 +1228,7 @@ private fun CenterCutoutTrailingSlot(
                     maxLines = 1,
                     softWrap = false,
                 )
-            } else {
+            } else if (!iconOnly) {
                 var elapsedMs by
                     remember(event.id, event.startTimeMs, event.isRunning) {
                         mutableLongStateOf((System.currentTimeMillis() - event.startTimeMs).coerceAtLeast(0L))
@@ -1049,6 +1246,25 @@ private fun CenterCutoutTrailingSlot(
                     maxLines = 1,
                     softWrap = false,
                 )
+                if (liveProgress) {
+                    Spacer(Modifier.width(SpaceXs))
+                    // Stopwatch runs open-ended: shimmer bar signals "still counting".
+                    val shimmer by rememberInfiniteTransition(label = "stopwatch_pulse").animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 0.9f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(900, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "stopwatch_shimmer",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(width = 22.dp, height = 2.dp)
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(contentColor.copy(alpha = shimmer * 0.8f))
+                    )
+                }
             }
             if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
                 ChipEventCountBadge(chipState, accent, contentColor)
@@ -1071,7 +1287,7 @@ private fun CenterCutoutTrailingSlot(
                 }
             }
             Spacer(Modifier.width(SpaceXs))
-            Text(
+            if (!iconOnly) Text(
                 text = formatCountdownLong(elapsedMs),
                 style = PillPrimary,
                 color = contentColor,
@@ -1083,7 +1299,7 @@ private fun CenterCutoutTrailingSlot(
             }
         }
         is IslandEvent.Sports -> {
-            Text(
+            if (!iconOnly) Text(
                 text =
                     if (event.score1.isNotEmpty()) "${event.score1} - ${event.score2}"
                     else stringResource(R.string.ax_dynamic_bar_sports_vs),
@@ -1096,7 +1312,7 @@ private fun CenterCutoutTrailingSlot(
             StatusBarSportsTeamBadge(event.team2Name, event.team2Icon, contentColor)
         }
         is IslandEvent.Charging -> {
-            Text(
+            if (!iconOnly) Text(
                 text = "${event.level}%",
                 style = PillPrimary,
                 color = contentColor,
@@ -1108,7 +1324,7 @@ private fun CenterCutoutTrailingSlot(
             val label =
                 if (event.supportsLevel) "${(event.level.toFloat() / event.maxLevel * 100).toInt()}%"
                 else stringResource(R.string.ax_dynamic_bar_on)
-            Text(
+            if (!iconOnly) Text(
                 text = label,
                 style = PillPrimary,
                 color = contentColor,
@@ -1117,7 +1333,7 @@ private fun CenterCutoutTrailingSlot(
             )
         }
         is IslandEvent.BiometricUnlock -> {
-            Text(
+            if (!iconOnly) Text(
                 text = stringResource(R.string.ax_dynamic_bar_unlocked),
                 style = PillPrimary,
                 color = contentColor,
@@ -1129,7 +1345,7 @@ private fun CenterCutoutTrailingSlot(
             if (chipState.eventCount > 1) {
                 ChipEventCountBadge(chipState, accent, contentColor)
             } else {
-                Text(
+                if (!iconOnly) Text(
                     text = event.appName ?: "",
                     style = PillPrimary,
                     color = contentColor,
@@ -1144,7 +1360,7 @@ private fun CenterCutoutTrailingSlot(
             if (chipState.secondaryEvent == null && chipState.eventCount > 1) {
                 ChipEventCountBadge(chipState, accent, contentColor)
             } else {
-                PillEventText(
+                if (!iconOnly) PillEventText(
                     event,
                     Modifier.widthIn(max = chipTextMaxWidth),
                     overrideColor = contentColor,

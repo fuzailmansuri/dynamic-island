@@ -6,20 +6,166 @@
 <PreferenceScreen
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:settings="http://schemas.android.com/apk/res-auto"
+    android:key="dynamic_island_settings_page"
     android:title="@string/dynamic_island_title">
 
+    <!-- Master Toggle -->
     <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
         android:key="dynamic_island_enabled"
         android:title="@string/dynamic_island_enabled_title"
         android:summary="@string/dynamic_island_enabled_summary"
         android:defaultValue="true" />
 
+    <!-- Active Events -->
+    <PreferenceCategory
+        android:key="dynamic_island_events_category"
+        android:title="@string/dynamic_island_events_category_title"
+        android:dependency="dynamic_island_enabled">
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_media"
+            android:title="@string/dynamic_island_event_media_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_calls"
+            android:title="@string/dynamic_island_event_calls_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_ongoing"
+            android:title="@string/dynamic_island_event_ongoing_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_battery"
+            android:title="@string/dynamic_island_event_battery_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_timers"
+            android:title="@string/dynamic_island_event_timers_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_torch"
+            android:title="@string/dynamic_island_event_torch_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_biometrics"
+            android:title="@string/dynamic_island_event_biometrics_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_recording"
+            android:title="@string/dynamic_island_event_recording_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_event_notification"
+            android:title="@string/dynamic_island_event_notification_title"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <!-- Gestures & Interactions -->
+    <PreferenceCategory
+        android:key="dynamic_island_gestures_category"
+        android:title="@string/dynamic_island_gestures_category_title"
+        android:dependency="dynamic_island_enabled">
+
+        <com.android.settings.yaap.preferences.SystemSettingIntListPreference
+            android:key="dynamic_island_tap_action"
+            android:title="@string/dynamic_island_tap_action_title"
+            android:summary="%s"
+            android:entries="@array/dynamic_island_tap_action_entries"
+            android:entryValues="@array/dynamic_island_tap_action_values"
+            android:defaultValue="0" />
+
+        <com.android.settings.yaap.preferences.SystemSettingIntListPreference
+            android:key="dynamic_island_long_press_action"
+            android:title="@string/dynamic_island_long_press_action_title"
+            android:summary="%s"
+            android:entries="@array/dynamic_island_long_press_action_entries"
+            android:entryValues="@array/dynamic_island_long_press_action_values"
+            android:defaultValue="1" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_swipe_dismiss"
+            android:title="@string/dynamic_island_swipe_dismiss_title"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <!-- Behavior & Appearance -->
+    <PreferenceCategory
+        android:key="dynamic_island_appearance_category"
+        android:title="@string/dynamic_island_appearance_category_title"
+        android:dependency="dynamic_island_enabled">
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_landscape_mode"
+            android:title="@string/dynamic_island_landscape_mode_title"
+            android:defaultValue="false" />
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_suppress_fullscreen"
+            android:title="@string/dynamic_island_suppress_fullscreen_title"
+            android:defaultValue="false" />
+
+        <com.android.settings.yaap.preferences.SystemSettingIntListPreference
+            android:key="dynamic_island_animation_style"
+            android:title="@string/dynamic_island_animation_style_title"
+            android:summary="%s"
+            android:entries="@array/dynamic_island_animation_style_entries"
+            android:entryValues="@array/dynamic_island_animation_style_values"
+            android:defaultValue="0" />
+
+        <com.android.settings.yaap.preferences.SystemSettingIntListPreference
+            android:key="dynamic_island_collapse_timeout"
+            android:title="@string/dynamic_island_collapse_timeout_title"
+            android:summary="%s"
+            android:entries="@array/dynamic_island_collapse_timeout_entries"
+            android:entryValues="@array/dynamic_island_collapse_timeout_values"
+            android:defaultValue="0" />
+
+        <com.android.settings.yaap.preferences.CustomSeekBarPreference
+            android:key="dynamic_island_scale"
+            android:title="@string/dynamic_island_scale_title"
+            android:defaultValue="100"
+            android:max="130"
+            settings:min="70"
+            settings:interval="5"
+            settings:units="%" />
+    </PreferenceCategory>
+
+    <!-- Lock Screen & Keyguard -->
+    <PreferenceCategory
+        android:key="dynamic_island_keyguard_category"
+        android:title="@string/dynamic_island_keyguard_category_title"
+        android:dependency="dynamic_island_enabled">
+
+        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
+            android:key="ax_dynamic_bar_keyguard_enabled"
+            android:title="@string/dynamic_island_keyguard_enabled_title"
+            android:defaultValue="true" />
+
+        <com.android.settings.yaap.preferences.SystemSettingIntListPreference
+            android:key="ax_dynamic_bar_keyguard_battery_chip_mode"
+            android:title="@string/dynamic_island_keyguard_battery_chip_title"
+            android:summary="%s"
+            android:entries="@array/dynamic_island_keyguard_battery_chip_entries"
+            android:entryValues="@array/dynamic_island_keyguard_battery_chip_values"
+            android:defaultValue="1"
+            android:dependency="ax_dynamic_bar_keyguard_enabled" />
+    </PreferenceCategory>
+
+    <!-- Cutout Adaptability & Positioning -->
     <PreferenceCategory
         android:key="dynamic_island_cutout_category"
         android:title="@string/dynamic_island_cutout_category_title"
         android:dependency="dynamic_island_enabled">
 
-        <ListPreference
+        <com.android.settings.yaap.preferences.SystemSettingListPreference
             android:key="dynamic_island_cutout_type"
             android:title="@string/dynamic_island_cutout_type_title"
             android:summary="%s"
@@ -62,46 +208,35 @@
             settings:min="-50"
             settings:interval="1"
             settings:units="dp" />
-    </PreferenceCategory>
-
-    <PreferenceCategory
-        android:key="dynamic_island_events_category"
-        android:title="@string/dynamic_island_events_category_title"
-        android:dependency="dynamic_island_enabled">
 
         <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_media"
-            android:title="@string/dynamic_island_event_media_title"
+            android:key="dynamic_island_hide_text_behind_cutout"
+            android:title="@string/dynamic_island_hide_text_behind_cutout_title"
+            android:summary="@string/dynamic_island_hide_text_behind_cutout_summary"
             android:defaultValue="true" />
 
         <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_call"
-            android:title="@string/dynamic_island_event_call_title"
+            android:key="dynamic_island_live_progress"
+            android:title="@string/dynamic_island_live_progress_title"
+            android:summary="@string/dynamic_island_live_progress_summary"
             android:defaultValue="true" />
 
         <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_battery"
-            android:title="@string/dynamic_island_event_battery_title"
-            android:defaultValue="true" />
+            android:key="dynamic_island_icon_only"
+            android:title="@string/dynamic_island_icon_only_title"
+            android:summary="@string/dynamic_island_icon_only_summary"
+            android:defaultValue="false" />
 
         <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_timer"
-            android:title="@string/dynamic_island_event_timer_title"
-            android:defaultValue="true" />
-
-        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_torch"
-            android:title="@string/dynamic_island_event_torch_title"
-            android:defaultValue="true" />
-
-        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_notification"
-            android:title="@string/dynamic_island_event_notification_title"
-            android:defaultValue="true" />
-
-        <com.android.settings.yaap.preferences.SystemSettingSwitchPreference
-            android:key="dynamic_island_event_biometrics"
-            android:title="@string/dynamic_island_event_biometrics_title"
+            android:key="dynamic_island_media_glow"
+            android:title="@string/dynamic_island_media_glow_title"
+            android:summary="@string/dynamic_island_media_glow_summary"
             android:defaultValue="true" />
     </PreferenceCategory>
+
+    <Preference
+        android:key="dynamic_island_reset"
+        android:title="@string/dynamic_island_reset_title"
+        android:summary="@string/dynamic_island_reset_summary" />
+
 </PreferenceScreen>

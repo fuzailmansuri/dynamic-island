@@ -236,6 +236,24 @@
             android:title="@string/dynamic_island_hide_text_behind_cutout_title"
             android:summary="@string/dynamic_island_hide_text_behind_cutout_summary"
             android:defaultValue="true" />
+
+        <com.yasp.settings.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_live_progress"
+            android:title="@string/dynamic_island_live_progress_title"
+            android:summary="@string/dynamic_island_live_progress_summary"
+            android:defaultValue="true" />
+
+        <com.yasp.settings.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_icon_only"
+            android:title="@string/dynamic_island_icon_only_title"
+            android:summary="@string/dynamic_island_icon_only_summary"
+            android:defaultValue="false" />
+
+        <com.yasp.settings.preferences.SystemSettingSwitchPreference
+            android:key="dynamic_island_media_glow"
+            android:title="@string/dynamic_island_media_glow_title"
+            android:summary="@string/dynamic_island_media_glow_summary"
+            android:defaultValue="true" />
     </PreferenceCategory>
 
     <Preference
